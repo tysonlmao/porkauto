@@ -7,12 +7,14 @@ import { SetupScreen } from "@/components/setup/SetupScreen";
 import { KeyboardProvider } from "@/components/keyboard/KeyboardProvider";
 import { useDeviceLocation } from "@/hooks/useDeviceLocation";
 import { useDeviceMotion } from "@/hooks/useDeviceMotion";
+import { useNetworkConnection } from "@/hooks/useNetworkConnection";
 import { usePairingSync } from "@/hooks/usePairingSync";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
 import { useVehicleStore } from "@/store/vehicle";
 
 export function App() {
   const setupComplete = useVehicleStore((s) => s.setupComplete);
+  useNetworkConnection(true);
   useDeviceLocation(setupComplete);
   useDeviceMotion(setupComplete);
   usePairingSync(setupComplete);

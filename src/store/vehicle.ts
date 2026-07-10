@@ -25,6 +25,7 @@ import {
   LocationError,
   type LocationSource,
 } from "@/lib/geolocation";
+import { readConnectionStatus } from "@/lib/networkConnection";
 
 const SETUP_KEY = "porkauto.setupComplete";
 const DEVICE_KEY = "porkauto.device";
@@ -204,9 +205,12 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     const next = (get().indevIndex + 1) % INDEV_PRESETS.length;
     const preset = INDEV_PRESETS[next];
     if (!preset) return;
+    const { connection: _ignored, ...rest } = preset;
     set({
       indevIndex: next,
-      ...preset,
+      ...rest,
+      // Connection comes from the live network hook, not indev presets.
+      connection: get().connection,
     });
   },
 
@@ -445,7 +449,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       mode: "park",
       gear: "P",
       speedKmh: 0,
-      connection: { type: "wifi", bars: 3 },
+      connection: readConnectionStatus(),
     });
   },
 
@@ -461,7 +465,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       mode: "park",
       gear: "P",
       speedKmh: 0,
-      connection: { type: "wifi", bars: 3 },
+      connection: readConnectionStatus(),
     });
   },
 
