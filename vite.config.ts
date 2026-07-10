@@ -19,9 +19,25 @@ export default defineConfig({
     open: false,
     // Allow iPad access via Cloudflare quick tunnel (real HTTPS cert).
     allowedHosts: true,
-    // Same-origin /geo/* for tunnel clients (Nominatim/OSRM blocked in browsers).
+    // Same-origin API for Cloudflare tunnel / iPad Safari (HTTPS page can't call :3001).
     proxy: {
       "/geo": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+      "/devices": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+      "/integrations": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+      "/auth": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+      "/health": {
         target: "http://127.0.0.1:3001",
         changeOrigin: true,
       },

@@ -1,45 +1,95 @@
-import { useEffect, useState } from "react";
-import { registerDevice } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
+import {
+  buildPairingQrPayload,
+  confirmDevicePairing,
+  encodePairingQr,
+  fetchDeviceConfig,
+  registerDevice,
+  unpairDevice,
+} from "@/lib/api";
 import { useVehicleStore } from "@/store/vehicle";
+import { devToolsEnabled } from "@/lib/devTools";
+
+type StoredDevice = {
+  deviceId: string;
+  pairingCode: string;
+  token: string;
+  apiKey?: string;
+  name?: string;
+  paired?: boolean;
+};
+
+type SetupPhase = "registering" | "waiting" | "linked" | "error";
+
+const POLL_MS = 1500;
 
 export function SetupScreen() {
   const completeSetup = useVehicleStore((s) => s.completeSetup);
   const skipSetup = useVehicleStore((s) => s.skipSetup);
+  const [phase, setPhase] = useState<SetupPhase>("registering");
   const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [device, setDevice] = useState<StoredDevice | null>(null);
+  const [deviceName, setDeviceName] = useState("Porkauto Display");
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState(false);
+  const linkedAnnounced = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function register() {
-      setLoading(true);
+      setPhase("registering");
       setError(null);
+      setQrDataUrl(null);
+      linkedAnnounced.current = false;
       try {
         const result = await registerDevice("Porkauto Display");
         if (cancelled) return;
+
+        const stored: StoredDevice = {
+          deviceId: result.device.id,
+          pairingCode: result.pairingCode,
+          token: result.token,
+          apiKey: result.apiKey ?? result.deviceSecret,
+          name: result.device.name,
+          paired: false,
+        };
         setPairingCode(result.pairingCode);
+        setDevice(stored);
+        setDeviceName(result.device.name);
         try {
-          localStorage.setItem(
-            "porkauto.device",
-            JSON.stringify({
-              deviceId: result.device.id,
-              pairingCode: result.pairingCode,
-              token: result.token,
-            }),
-          );
+          localStorage.setItem("porkauto.device", JSON.stringify(stored));
         } catch {
           // ignore
         }
+
+        const payload = buildPairingQrPayload(
+          result.pairingCode,
+          result.device.id,
+        );
+        const dataUrl = await QRCode.toDataURL(encodePairingQr(payload), {
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 256,
+          color: { dark: "#ffffff", light: "#09090b" },
+        });
+        if (cancelled) return;
+        setQrDataUrl(dataUrl);
+        setPhase("waiting");
       } catch (err) {
         if (cancelled) return;
-        setError(
+        const message =
           err instanceof Error
             ? err.message
-            : "Could not reach the API. You can skip setup for local UI work.",
+            : "Could not reach the API. You can skip setup for local UI work.";
+        setError(
+          /load failed|failed to fetch|networkerror/i.test(message)
+            ? "Could not reach the API from this page. If you’re on a tunnel URL, restart Vite so /devices is proxied, then reload."
+            : message,
         );
-      } finally {
-        if (!cancelled) setLoading(false);
+        setPhase("error");
       }
     }
 
@@ -49,31 +99,104 @@ export function SetupScreen() {
     };
   }, []);
 
-  function handleContinue() {
-    const raw = localStorage.getItem("porkauto.device");
-    if (raw) {
+  // Poll until companion claims (pending) — then show confirm.
+  useEffect(() => {
+    if (phase !== "waiting" || !device) return;
+
+    let cancelled = false;
+    const credential = device.apiKey || device.token;
+
+    async function poll() {
       try {
-        const device = JSON.parse(raw) as {
-          deviceId: string;
-          pairingCode: string;
-          token: string;
-        };
-        completeSetup(device);
-        return;
+        const status = await fetchDeviceConfig(device!.deviceId, credential);
+        if (cancelled) return;
+        if (status.name) setDeviceName(status.name);
+
+        if (
+          (status.pairingStatus === "pending" || status.pairingStatus === "confirmed") &&
+          !linkedAnnounced.current
+        ) {
+          linkedAnnounced.current = true;
+          setDevice((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  name: status.name || prev.name,
+                  paired: status.pairingStatus === "confirmed",
+                }
+              : prev,
+          );
+          setPhase("linked");
+        }
       } catch {
-        // fall through
+        // Keep waiting — transient network blips during tunnel use.
       }
     }
-    if (pairingCode) {
+
+    void poll();
+    const id = window.setInterval(() => {
+      void poll();
+    }, POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [phase, device]);
+
+  async function handleConfirmLink() {
+    if (!device) {
+      skipSetup();
+      return;
+    }
+    const credential = device.apiKey || device.token;
+    setConfirming(true);
+    setError(null);
+    try {
+      const status = await confirmDevicePairing(device.deviceId, credential);
+      const name = status.name || device.name || "Porkauto Display";
+      setDeviceName(name);
       completeSetup({
-        deviceId: "local-dev",
-        pairingCode,
-        token: "",
+        ...device,
+        name,
+        paired: true,
       });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not confirm pairing",
+      );
+      setConfirming(false);
+    }
+  }
+
+  async function handleRejectLink() {
+    if (!device) {
+      setPhase("waiting");
+      linkedAnnounced.current = false;
+      return;
+    }
+    const credential = device.apiKey || device.token;
+    try {
+      await unpairDevice(device.deviceId, credential);
+    } catch {
+      // Still return to waiting UI.
+    }
+    linkedAnnounced.current = false;
+    setDevice((prev) => (prev ? { ...prev, paired: false } : prev));
+    setPhase("waiting");
+  }
+
+  function handleContinueWithoutLink() {
+    if (device) {
+      completeSetup({ ...device, paired: false });
       return;
     }
     skipSetup();
   }
+
+  const isLinked = phase === "linked";
+  const isWaiting = phase === "waiting";
+  const isRegistering = phase === "registering";
 
   return (
     <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-black px-8 text-center">
@@ -90,31 +213,60 @@ export function SetupScreen() {
           porkauto
         </h1>
         <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-zinc-500">
-          Open the companion app and enter this code to configure your display.
+          {isLinked
+            ? `Confirm pairing for ${deviceName}.`
+            : "Scan the QR with the companion app, or enter the code below."}
         </p>
 
         <div className="mt-12 flex flex-col items-center gap-7">
-          <div className="relative flex h-32 w-32 items-center justify-center overflow-hidden rounded-xl bg-zinc-950 ring-1 ring-white/10">
-            <div
-              className="absolute inset-3 rounded-md opacity-80"
-              style={{
-                backgroundImage:
-                  "linear-gradient(#27272a 1px, transparent 1px), linear-gradient(90deg, #27272a 1px, transparent 1px)",
-                backgroundSize: "10px 10px",
-              }}
-              aria-hidden
-            />
-            <span className="relative text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">
-              QR
-            </span>
+          <div
+            className={`relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-zinc-950 ring-1 transition ${
+              isLinked ? "ring-emerald-500/50" : "ring-white/10"
+            }`}
+          >
+            {isLinked ? (
+              <div className="flex flex-col items-center gap-2 px-3">
+                <span className="text-3xl text-emerald-400" aria-hidden>
+                  ✓
+                </span>
+                <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-emerald-400/90">
+                  linked
+                </span>
+              </div>
+            ) : qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt="Pairing QR code"
+                className="h-full w-full object-contain p-2"
+              />
+            ) : (
+              <>
+                <div
+                  className="absolute inset-3 rounded-md opacity-80"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(#27272a 1px, transparent 1px), linear-gradient(90deg, #27272a 1px, transparent 1px)",
+                    backgroundSize: "10px 10px",
+                  }}
+                  aria-hidden
+                />
+                <span className="relative text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+                  {isRegistering ? "…" : "QR"}
+                </span>
+              </>
+            )}
           </div>
 
-          {loading ? (
+          {isRegistering ? (
             <p className="hud-pulse font-mono text-3xl tracking-[0.4em] text-zinc-600">
               ······
             </p>
           ) : pairingCode ? (
-            <p className="font-mono text-4xl font-semibold tracking-[0.4em] text-white">
+            <p
+              className={`font-mono text-4xl font-semibold tracking-[0.4em] ${
+                isLinked ? "text-emerald-400/90" : "text-white"
+              }`}
+            >
               {pairingCode}
             </p>
           ) : (
@@ -127,30 +279,74 @@ export function SetupScreen() {
             <p className="max-w-sm text-xs leading-relaxed text-amber-500/90">
               {error}
             </p>
-          ) : (
-            <p className="text-xs tracking-wide text-zinc-600">
+          ) : isLinked ? (
+            <p className="max-w-sm text-sm leading-relaxed text-zinc-400">
+              Phone is waiting for you to confirm.
+            </p>
+          ) : isWaiting ? (
+            <p className="hud-pulse text-xs tracking-wide text-zinc-600">
               Waiting for mobile app to claim this device…
             </p>
-          )}
+          ) : null}
         </div>
 
-        <div className="mt-14 flex flex-col items-center gap-4">
-          <button
-            type="button"
-            onClick={handleContinue}
-            disabled={loading && !error}
-            className="rounded-md border border-white/15 bg-white/5 px-8 py-2.5 text-sm font-medium text-white transition hover:border-white/30 hover:bg-white/10 disabled:opacity-40"
+        {isLinked ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="link-confirm-title"
+            className="mx-auto mt-14 w-full max-w-sm rounded-xl border border-white/10 bg-zinc-950/90 px-6 py-5 text-left shadow-[0_0_40px_rgba(0,0,0,0.45)]"
           >
-            Continue
-          </button>
-          <button
-            type="button"
-            onClick={skipSetup}
-            className="text-[11px] uppercase tracking-[0.16em] text-zinc-600 transition hover:text-zinc-400"
-          >
-            Skip setup (dev)
-          </button>
-        </div>
+            <p
+              id="link-confirm-title"
+              className="text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-500/80"
+            >
+              confirm pairing
+            </p>
+            <p className="mt-2 text-[15px] leading-snug text-white">
+              Link companion to{" "}
+              <span className="font-medium text-emerald-300">{deviceName}</span>?
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => void handleRejectLink()}
+                disabled={confirming}
+                className="rounded-md px-4 py-2.5 text-sm text-zinc-500 transition hover:text-zinc-300 disabled:opacity-40"
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmLink()}
+                disabled={confirming}
+                className="rounded-md border border-emerald-500/40 bg-emerald-500/15 px-5 py-2.5 text-sm font-medium text-emerald-300 transition hover:border-emerald-400/60 hover:bg-emerald-500/25 disabled:opacity-40"
+              >
+                {confirming ? "Confirming…" : "Confirm & continue"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-14 flex flex-col items-center gap-4">
+            <button
+              type="button"
+              onClick={handleContinueWithoutLink}
+              disabled={isRegistering && !error}
+              className="rounded-md border border-white/15 bg-white/5 px-8 py-2.5 text-sm font-medium text-white transition hover:border-white/30 hover:bg-white/10 disabled:opacity-40"
+            >
+              Continue without linking
+            </button>
+            {devToolsEnabled() ? (
+              <button
+                type="button"
+                onClick={skipSetup}
+                className="text-[11px] uppercase tracking-[0.16em] text-zinc-600 transition hover:text-zinc-400"
+              >
+                Skip setup (dev)
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   type Gear,
   type MusicTrack,
   type NavStatus,
+  type SavedLocation,
   type VehiclePosition,
   type VehicleState,
 } from "./types";
@@ -32,6 +33,10 @@ type StoredDevice = {
   deviceId: string;
   pairingCode: string;
   token: string;
+  /** Host API key shared with the backend for this display instance. */
+  apiKey?: string;
+  name?: string;
+  paired?: boolean;
 };
 
 type SpeedSource = "gps" | "imu" | "obd" | "indev" | null;
@@ -72,6 +77,7 @@ type VehicleActions = {
   ) => void;
   setConnection: (connection: ConnectionStatus) => void;
   setMusic: (music: MusicTrack | null) => void;
+  setSpotifyNeedsGesture: (needed: boolean) => void;
   setNav: (nav: NavStatus | null) => void;
   setPosition: (position: Partial<VehiclePosition>) => void;
   setHeadingFromSensor: (
@@ -94,9 +100,17 @@ type VehicleActions = {
   startNavigation: () => void;
   stopNavigation: () => void;
   searchDestinations: (query: string) => Promise<Destination[]>;
-  completeSetup: (device: StoredDevice) => void;
+  completeSetup: (device: StoredDevice & { paired?: boolean }) => void;
   skipSetup: () => void;
   resetSetup: () => void;
+  setPairingStatus: (status: {
+    paired: boolean;
+    deviceName?: string | null;
+    homeAddress?: string | null;
+    savedLocations?: SavedLocation[];
+  }) => void;
+  setHomeAddress: (homeAddress: string | null) => void;
+  setSavedLocations: (savedLocations: SavedLocation[]) => void;
 };
 
 type VehicleStore = VehicleState &
@@ -113,11 +127,13 @@ type VehicleStore = VehicleState &
     obdConnected: boolean;
     speedSource: SpeedSource;
     headingSource: HeadingSource;
-    motionAvailable: boolean;
-    motionError: string | null;
-    motionNeedsGesture: boolean;
-    enableMotionSensors: (() => Promise<boolean>) | null;
-  };
+  motionAvailable: boolean;
+  motionError: string | null;
+  motionNeedsGesture: boolean;
+  enableMotionSensors: (() => Promise<boolean>) | null;
+  /** Browser blocked Spotify Web Playback autoplay until a user tap. */
+  spotifyNeedsGesture: boolean;
+};
 
 const stored = loadDevice();
 
@@ -162,6 +178,11 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   pairingCode: stored?.pairingCode ?? null,
   deviceId: stored?.deviceId ?? null,
   deviceToken: stored?.token ?? null,
+  deviceApiKey: stored?.apiKey ?? null,
+  deviceName: stored?.name ?? null,
+  paired: stored?.paired ?? false,
+  homeAddress: null,
+  savedLocations: [],
   indevIndex: 0,
   navBusy: false,
   navError: null,
@@ -177,6 +198,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   motionError: null,
   motionNeedsGesture: false,
   enableMotionSensors: null,
+  spotifyNeedsGesture: false,
 
   cycleIndev: () => {
     const next = (get().indevIndex + 1) % INDEV_PRESETS.length;
@@ -216,6 +238,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
 
   setConnection: (connection) => set({ connection }),
   setMusic: (music) => set({ music }),
+  setSpotifyNeedsGesture: (needed) => set({ spotifyNeedsGesture: needed }),
   setNav: (nav) => set({ nav }),
 
   setPosition: (partial) =>
@@ -323,7 +346,11 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   },
 
   searchDestinations: async (query) => {
-    const results = await geocodePlaces(query);
+    const { position } = get();
+    const results = await geocodePlaces(query, {
+      lat: position.lat,
+      lng: position.lng,
+    });
     return results.map((r) => ({ name: r.name, location: r.location }));
   },
 
@@ -395,9 +422,15 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     }),
 
   completeSetup: (device) => {
+    const paired = device.paired ?? true;
+    const toStore: StoredDevice = {
+      ...device,
+      name: device.name ?? "Porkauto Display",
+      paired,
+    };
     try {
       localStorage.setItem(SETUP_KEY, "1");
-      localStorage.setItem(DEVICE_KEY, JSON.stringify(device));
+      localStorage.setItem(DEVICE_KEY, JSON.stringify(toStore));
     } catch {
       // ignore
     }
@@ -406,6 +439,9 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       deviceId: device.deviceId,
       pairingCode: device.pairingCode,
       deviceToken: device.token,
+      deviceApiKey: device.apiKey ?? null,
+      deviceName: toStore.name ?? null,
+      paired,
       mode: "park",
       gear: "P",
       speedKmh: 0,
@@ -421,6 +457,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     }
     set({
       setupComplete: true,
+      paired: false,
       mode: "park",
       gear: "P",
       speedKmh: 0,
@@ -440,6 +477,11 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       pairingCode: null,
       deviceId: null,
       deviceToken: null,
+      deviceApiKey: null,
+      deviceName: null,
+      paired: false,
+      homeAddress: null,
+      savedLocations: [],
       mode: "connecting",
       gear: "P",
       speedKmh: 0,
@@ -466,4 +508,32 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       indevIndex: 0,
     });
   },
+
+  setPairingStatus: ({ paired, deviceName, homeAddress, savedLocations }) => {
+    try {
+      const raw = localStorage.getItem(DEVICE_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw) as StoredDevice;
+        localStorage.setItem(
+          DEVICE_KEY,
+          JSON.stringify({
+            ...stored,
+            paired,
+            ...(deviceName ? { name: deviceName } : {}),
+          }),
+        );
+      }
+    } catch {
+      // ignore
+    }
+    set({
+      paired,
+      ...(deviceName !== undefined ? { deviceName } : {}),
+      ...(homeAddress !== undefined ? { homeAddress } : {}),
+      ...(savedLocations !== undefined ? { savedLocations } : {}),
+    });
+  },
+
+  setHomeAddress: (homeAddress) => set({ homeAddress }),
+  setSavedLocations: (savedLocations) => set({ savedLocations }),
 }));

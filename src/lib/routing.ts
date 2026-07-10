@@ -54,11 +54,18 @@ export function formatEta(
 
 export async function geocodePlaces(
   query: string,
+  near?: { lat: number; lng: number } | null,
 ): Promise<GeocodeResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
 
-  const url = `${geoApiBase()}/geo/search?q=${encodeURIComponent(q)}`;
+  const params = new URLSearchParams({ q });
+  if (near && Number.isFinite(near.lat) && Number.isFinite(near.lng)) {
+    params.set("nearLat", String(near.lat));
+    params.set("nearLng", String(near.lng));
+  }
+
+  const url = `${geoApiBase()}/geo/search?${params.toString()}`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Geocode failed (${res.status})`);

@@ -3,7 +3,7 @@
  * Expose the Vite renderer on a real HTTPS URL (trusted cert) for iPad Safari.
  *
  * Starts Vite (:5173) and the API (:3001) if needed, then cloudflared.
- * Place search / routing go Vite → /geo proxy → API (Nominatim/OSRM).
+ * Device register / claim / geo go Vite → proxy → API (same-origin for iPad Safari).
  */
 
 const viteUrl = process.env.VITE_TUNNEL_TARGET ?? "http://127.0.0.1:5173";

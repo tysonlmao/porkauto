@@ -14,6 +14,12 @@ export type MusicTrack = {
   title: string;
   artist: string;
   albumArtUrl: string | null;
+  /** Playback position in ms when this snapshot was taken. */
+  progressMs?: number;
+  /** Track duration in ms. */
+  durationMs?: number;
+  /** Whether Spotify reports the track as currently playing. */
+  isPlaying?: boolean;
 };
 
 export type NavStatus = {
@@ -25,6 +31,14 @@ export type NavStatus = {
 export type Destination = {
   name: string;
   location: LatLng;
+};
+
+export type SavedLocation = {
+  id: string;
+  label: string;
+  address: string;
+  lat?: number;
+  lng?: number;
 };
 
 export type VehiclePosition = LatLng & {
@@ -52,6 +66,13 @@ export type VehicleState = {
   pairingCode: string | null;
   deviceId: string | null;
   deviceToken: string | null;
+  deviceApiKey: string | null;
+  deviceName: string | null;
+  paired: boolean;
+  /** From companion device config — used as destination shortcut. */
+  homeAddress: string | null;
+  /** Saved places from companion config. */
+  savedLocations: SavedLocation[];
 };
 
 export const GEARS: Gear[] = ["P", "R", "N", "D"];
@@ -69,6 +90,11 @@ export const INDEV_PRESETS: Omit<
   | "pairingCode"
   | "deviceId"
   | "deviceToken"
+  | "deviceApiKey"
+  | "deviceName"
+  | "paired"
+  | "homeAddress"
+  | "savedLocations"
   | "position"
   | "destination"
   | "route"
@@ -101,6 +127,9 @@ export const INDEV_PRESETS: Omit<
       title: "Vanished",
       artist: "Crystal Castles",
       albumArtUrl: null,
+      progressMs: 72_000,
+      durationMs: 214_000,
+      isPlaying: true,
     },
     nav: {
       etaTime: "14:24",
@@ -118,6 +147,9 @@ export const INDEV_PRESETS: Omit<
       title: "Nightcall",
       artist: "Kavinsky",
       albumArtUrl: null,
+      progressMs: 45_000,
+      durationMs: 256_000,
+      isPlaying: true,
     },
     nav: {
       etaTime: "09:12",

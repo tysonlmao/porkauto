@@ -9,6 +9,8 @@ type NavStatusProps = {
   destinationName: string;
   destinationLocation: LatLng;
   position: LatLng;
+  etaTime?: string | null;
+  remainingMinutes?: number | null;
   className?: string;
 };
 
@@ -16,6 +18,8 @@ export function NavStatus({
   destinationName,
   destinationLocation,
   position,
+  etaTime,
+  remainingMinutes,
   className,
 }: NavStatusProps) {
   const distanceM = haversineM(position, destinationLocation);
@@ -32,6 +36,15 @@ export function NavStatus({
         {arriving ? "Arriving at" : "Driving to"}{" "}
         <span className="text-white">{destinationName}</span>
       </p>
+      {!arriving && (etaTime || remainingMinutes != null) ? (
+        <p className="mt-0.5 text-[12px] text-zinc-500">
+          {etaTime ? `ETA ${etaTime}` : null}
+          {etaTime && remainingMinutes != null ? " · " : null}
+          {remainingMinutes != null
+            ? `${remainingMinutes} min`
+            : null}
+        </p>
+      ) : null}
     </div>
   );
 }

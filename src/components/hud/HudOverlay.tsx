@@ -21,8 +21,10 @@ export function HudOverlay() {
   const speedLimitKmh = useVehicleStore((s) => s.speedLimitKmh);
   const connection = useVehicleStore((s) => s.connection);
   const music = useVehicleStore((s) => s.music);
+  const spotifyNeedsGesture = useVehicleStore((s) => s.spotifyNeedsGesture);
   const navigating = useVehicleStore((s) => s.navigating);
   const destination = useVehicleStore((s) => s.destination);
+  const nav = useVehicleStore((s) => s.nav);
   const position = useVehicleStore((s) => s.position);
 
   const overLimit =
@@ -36,6 +38,15 @@ export function HudOverlay() {
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_42%,rgba(0,0,0,0.55)_100%)]"
         aria-hidden
       />
+
+      {spotifyNeedsGesture ? (
+        <button
+          type="button"
+          className="pointer-events-auto absolute inset-x-0 bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] z-20 mx-auto max-w-md rounded-sm border border-white/15 bg-black/80 px-4 py-3 text-center text-[13px] text-zinc-200 backdrop-blur-sm"
+        >
+          Tap to enable Spotify audio on this display
+        </button>
+      ) : null}
 
       <p className="absolute text-[11px] font-medium lowercase tracking-[0.16em] text-zinc-600 safe-top safe-left">
         {modeLabel(mode)}
@@ -79,13 +90,21 @@ export function HudOverlay() {
         </div>
       ) : null}
 
-      {/* Left stack: time, music, then indev controls */}
+      {/* Left stack: time (drive), music, then indev controls */}
       {mode === "drive" ? (
         <div
           key="drive-left"
           className="absolute top-[calc(3.25rem+env(safe-area-inset-top,0px))] flex flex-col items-start gap-5 hud-fade-in safe-left"
         >
           <Clock variant="compact" />
+          {music ? <MusicWidget track={music} /> : null}
+          <IndevButton className="mt-1" />
+        </div>
+      ) : mode === "park" ? (
+        <div
+          key="park-left"
+          className="absolute top-[calc(3.5rem+env(safe-area-inset-top,0px))] flex flex-col items-start gap-5 hud-fade-in safe-left"
+        >
           {music ? <MusicWidget track={music} /> : null}
           <IndevButton className="mt-1" />
         </div>
@@ -101,6 +120,8 @@ export function HudOverlay() {
             destinationName={destination.name}
             destinationLocation={destination.location}
             position={position}
+            etaTime={nav?.etaTime}
+            remainingMinutes={nav?.remainingMinutes}
           />
         </div>
       ) : null}

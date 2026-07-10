@@ -1,4 +1,6 @@
 import { useVehicleStore } from "@/store/vehicle";
+import { unpairAndResetHost } from "@/hooks/usePairingSync";
+import { devToolsEnabled } from "@/lib/devTools";
 import { cn } from "@/lib/utils";
 
 type IndevButtonProps = {
@@ -8,11 +10,14 @@ type IndevButtonProps = {
 export function IndevButton({ className }: IndevButtonProps) {
   const cycleIndev = useVehicleStore((s) => s.cycleIndev);
   const mode = useVehicleStore((s) => s.mode);
-  const resetSetup = useVehicleStore((s) => s.resetSetup);
   const setupComplete = useVehicleStore((s) => s.setupComplete);
+  const paired = useVehicleStore((s) => s.paired);
+  const deviceName = useVehicleStore((s) => s.deviceName);
   const setPosition = useVehicleStore((s) => s.setPosition);
   const position = useVehicleStore((s) => s.position);
   const route = useVehicleStore((s) => s.route);
+
+  if (!devToolsEnabled()) return null;
 
   function nudgeAlongRoute() {
     const coords = route?.coordinates;
@@ -65,11 +70,25 @@ export function IndevButton({ className }: IndevButtonProps) {
           >
             indev · move
           </button>
+          <p
+            className={cn(
+              "max-w-[16rem] px-1 font-mono text-[10px] tracking-[0.06em]",
+              paired ? "text-emerald-400/90" : "text-zinc-600",
+            )}
+          >
+            {paired && deviceName
+              ? `Paired to ${deviceName}`
+              : paired
+                ? "Paired"
+                : "Not paired"}
+          </p>
         </>
       ) : null}
       <button
         type="button"
-        onClick={resetSetup}
+        onClick={() => {
+          void unpairAndResetHost();
+        }}
         className="px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-600 transition hover:text-zinc-400"
       >
         reset setup

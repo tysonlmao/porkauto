@@ -18,7 +18,16 @@ export type DeviceTokenPayload = {
   typ: "device";
 };
 
-export type TokenPayload = UserTokenPayload | DeviceTokenPayload;
+/** Companion / mobile owner of a claimed device (no user account). */
+export type OwnerTokenPayload = {
+  sub: string;
+  typ: "owner";
+};
+
+export type TokenPayload =
+  | UserTokenPayload
+  | DeviceTokenPayload
+  | OwnerTokenPayload;
 
 export async function signUserToken(
   userId: string,
@@ -45,12 +54,24 @@ export async function signDeviceToken(
     .sign(getSecret());
 }
 
+export async function signOwnerToken(
+  deviceId: string,
+  expiresIn = "365d",
+): Promise<string> {
+  return new SignJWT({ typ: "owner" } satisfies Omit<OwnerTokenPayload, "sub">)
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(deviceId)
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(getSecret());
+}
+
 export async function verifyToken(token: string): Promise<TokenPayload> {
   const { payload } = await jwtVerify(token, getSecret());
   const typ = payload.typ;
   const sub = payload.sub;
 
-  if (!sub || (typ !== "user" && typ !== "device")) {
+  if (!sub || (typ !== "user" && typ !== "device" && typ !== "owner")) {
     throw new Error("Invalid token payload");
   }
 
@@ -59,6 +80,10 @@ export async function verifyToken(token: string): Promise<TokenPayload> {
       throw new Error("Invalid user token");
     }
     return { sub, typ: "user", email: payload.email };
+  }
+
+  if (typ === "owner") {
+    return { sub, typ: "owner" };
   }
 
   return { sub, typ: "device" };
@@ -85,6 +110,21 @@ export function generatePairingCode(): string {
   return code;
 }
 
+/** Long-lived API key / secret (64 hex chars). */
+export function generateApiKey(): string {
+  return (
+    crypto.randomUUID().replace(/-/g, "") +
+    crypto.randomUUID().replace(/-/g, "")
+  );
+}
+
 export async function hashSecret(secret: string): Promise<string> {
   return Bun.password.hash(secret, { algorithm: "argon2id" });
+}
+
+export async function verifySecret(
+  secret: string,
+  hash: string,
+): Promise<boolean> {
+  return Bun.password.verify(secret, hash);
 }

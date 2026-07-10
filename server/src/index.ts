@@ -4,6 +4,10 @@ import { HTTPException } from "hono/http-exception";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/devices";
 import { geoRoutes } from "./routes/geo";
+import {
+  deviceIntegrationRoutes,
+  spotifyCallbackRoutes,
+} from "./routes/integrations";
 
 const app = new Hono();
 
@@ -12,7 +16,7 @@ app.use(
   cors({
     origin: "*",
     allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
 
@@ -22,6 +26,8 @@ app.get("/health", (c) =>
 
 app.route("/auth", authRoutes);
 app.route("/devices", deviceRoutes);
+app.route("/devices", deviceIntegrationRoutes);
+app.route("/integrations", spotifyCallbackRoutes);
 app.route("/geo", geoRoutes);
 
 app.onError((err, c) => {
