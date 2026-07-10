@@ -1,57 +1,89 @@
-# Electrobun Hello World
+# porkauto
 
-A simple Electrobun app to get you started with the framework.
+Standalone car display — a CarPlay / Android Auto alternative that runs without a tethered phone. Rich HUD statuses (nav, music, time, PRNDL) over a themed Google Map, with a public API for later mobile configuration.
 
-## What You'll See
+## Stack
 
-This hello world app demonstrates:
-- **Native Window**: A cross-platform desktop window
-- **Web-based UI**: Modern HTML, CSS, and JavaScript interface
-- **Simple Architecture**: Clean separation between Bun process and UI
+- **Display:** Electrobun + Vite + React + TypeScript + Tailwind
+- **API:** Bun + Hono + Drizzle + Postgres (Docker)
+- **Maps:** Google Maps JavaScript API (`@vis.gl/react-google-maps`)
 
-## Getting Started
+## Quick start
 
-1. Install dependencies:
-   ```bash
-   bun install
-   ```
+```bash
+# 1. Install
+bun install
 
-2. Run in development mode:
-   ```bash
-   bun run dev
-   ```
+# 2. Env
+cp .env.example .env
+# Optional: set VITE_GOOGLE_MAPS_API_KEY for the live map
 
-3. Build for production:
-   ```bash
-   bun run build
-   ```
+# 3. Database + migrate
+bun run db:up
+bun run db:migrate
 
-## Project Structure
-
-```
-src/
-├── bun/
-│   └── index.ts      # Main process - creates and manages windows
-└── mainview/
-    ├── index.html    # Your app's UI
-    ├── index.css     # Styles
-    └── index.ts      # View logic
+# 4. Dev (Vite + Electrobun + API)
+bun run dev
 ```
 
-## Next Steps
+- Renderer: http://localhost:5173 (Electrobun — localhost is a secure context)
+- iPad GPS: run `bun run dev:tunnel` and open the printed `https://*.trycloudflare.com` URL (Safari needs a real cert; self-signed LAN HTTPS is rejected)
+- API: http://localhost:3001 (`GET /health`)  
+- Electrobun window loads the Vite URL in dev
 
-Ready to build something more complex? Check out:
+## Indev controls
 
-- **[Documentation](https://docs.electrobun.dev)** - Learn about all Electrobun features
-- **[Examples](https://github.com/blackboardsh/electrobun/tree/main/playground)** - See advanced features like RPC, menus, and system tray
-- **[GitHub](https://github.com/blackboardsh/electrobun)** - Star the repo and join the community
+Bottom-right **indev** button cycles mock vehicle states:
 
-### Add More Features
+1. Connecting  
+2. Park (clock + PRNDL P)  
+3. Drive (map, music, nav, speed limit, 5G)  
+4. Drive alt (ethernet, different route/music)
 
-Want to extend this app? Try adding:
-- RPC communication between Bun and webview
-- Native menus and system tray
-- File dialogs and system integration
-- Multiple windows and views
+**reset setup** clears local pairing and returns to the setup screen.
 
-Happy building! 🚀
+## Setup / pairing
+
+First launch registers a device with `POST /devices/register` and shows a pairing code (QR placeholder for the future companion app). Use **Skip setup (dev)** to enter the HUD without the API.
+
+## API (auth required except health + device register)
+
+| Method | Path | Auth | Notes |
+|--------|------|------|--------|
+| GET | `/health` | — | Liveness |
+| POST | `/auth/register` | — | `{ email, password }` |
+| POST | `/auth/login` | — | `{ email, password }` → JWT |
+| POST | `/devices/register` | — | Creates device + pairing code + device JWT |
+| POST | `/devices/claim` | user JWT | `{ pairingCode }` binds device to user |
+| GET | `/devices/:id/config` | user or device JWT | Read config |
+| PATCH | `/devices/:id/config` | user or device JWT | `{ config }` merge |
+
+Bearer token: `Authorization: Bearer <jwt>`
+
+## Project layout
+
+```
+src/app/           React renderer
+src/bun/           Electrobun main process
+src/components/    HUD, map, setup UI
+src/store/         Vehicle / indev state (Zustand)
+server/            Public API
+docker-compose.yml Postgres 16
+```
+
+## Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `bun run dev` | Start Postgres (if needed) + renderer + app + API |
+| `bun run db:up` / `db:down` | Docker Postgres |
+| `bun run db:migrate` | Apply SQL schema |
+| `bun run build` | Vite + Electrobun production build |
+| `bun run typecheck` | TypeScript (app + server) |
+
+## Out of scope (for now)
+
+- Real OBD-II / CAN PRNDL  
+- Spotify / YouTube Music SDKs  
+- Companion mobile app UI  
+- Full turn-by-turn navigation beyond mock route + themed map  

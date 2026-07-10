@@ -1,17 +1,32 @@
 import { BrowserWindow } from "electrobun/bun";
 
-// Create the main application window
-const rendererUrl = process.env.RENDERER_URL ?? "views://app/index.html";
+async function getRendererUrl(): Promise<string> {
+  if (process.env.RENDERER_URL) {
+    return process.env.RENDERER_URL;
+  }
+
+  // Prefer HTTP localhost — it is a secure context and avoids self-signed TLS errors.
+  try {
+    const response = await fetch("http://localhost:5173");
+    if (response.ok) {
+      return "http://localhost:5173";
+    }
+  } catch {
+    // Vite not running — fall back to bundled views
+  }
+
+  return "views://app/index.html";
+}
 
 const mainWindow = new BrowserWindow({
-  title: "test",
-  url: rendererUrl,
+  title: "porkauto",
+  url: await getRendererUrl(),
   frame: {
-    width: 1024,
-    height: 600,
-    x: 200,
-    y: 200,
+    width: 1280,
+    height: 720,
+    x: 100,
+    y: 100,
   },
 });
 
-console.log("Hello Electrobun app started!");
+void mainWindow;

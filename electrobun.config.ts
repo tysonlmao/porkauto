@@ -1,20 +1,21 @@
 export default {
   app: {
-    name: "hello-world",
-    identifier: "helloworld.electrobun.dev",
+    name: "porkauto",
+    identifier: "dev.porkauto.app",
     version: "0.0.1",
   },
   build: {
-    views: {
-      mainview: {
-        entrypoint: "src/mainview/main.tsx",
-        external: [],
-      },
+    bun: {
+      entrypoint: "src/bun/index.ts",
+      external: [],
     },
+    // Vite builds the React UI — Electrobun only copies dist into views://
+    views: {},
     copy: {
-      "dist/mainview/index.html": "views/mainview/index.html",
-      "dist/mainview/assets": "views/mainview/assets",
+      "dist/app/index.html": "views/app/index.html",
+      "dist/app/assets": "views/app/assets",
     },
+    watchIgnore: ["dist/**"],
     mac: {
       bundleCEF: false,
     },

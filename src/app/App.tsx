@@ -1,9 +1,35 @@
-import React from "react";
+import { MapBackground } from "@/components/map/MapBackground";
+import { HudOverlay } from "@/components/hud/HudOverlay";
+import { IndevButton } from "@/components/hud/IndevButton";
+import { DestinationSearch } from "@/components/nav/DestinationSearch";
+import { PermissionsGate } from "@/components/nav/PermissionsGate";
+import { SetupScreen } from "@/components/setup/SetupScreen";
+import { useDeviceLocation } from "@/hooks/useDeviceLocation";
+import { useDeviceMotion } from "@/hooks/useDeviceMotion";
+import { useVehicleStore } from "@/store/vehicle";
 
 export function App() {
+  const setupComplete = useVehicleStore((s) => s.setupComplete);
+  useDeviceLocation(setupComplete);
+  useDeviceMotion(setupComplete);
+
+  if (!setupComplete) {
+    return (
+      <div className="app-shell relative bg-black">
+        <SetupScreen />
+        <div className="safe-top safe-left absolute z-50">
+          <IndevButton />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <>
-      <h1>Hello, world! 👋</h1>
-    </>
+    <div className="app-shell relative bg-black text-white">
+      <MapBackground />
+      <HudOverlay />
+      <DestinationSearch />
+      <PermissionsGate />
+    </div>
   );
 }

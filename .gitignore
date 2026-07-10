@@ -2,4 +2,5 @@ dist
 build
 node_modules
 .env
-*bun.lock
+*.log
+.DS_Store
