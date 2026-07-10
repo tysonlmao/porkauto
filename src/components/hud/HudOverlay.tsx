@@ -21,7 +21,9 @@ export function HudOverlay() {
   const speedLimitKmh = useVehicleStore((s) => s.speedLimitKmh);
   const connection = useVehicleStore((s) => s.connection);
   const music = useVehicleStore((s) => s.music);
-  const nav = useVehicleStore((s) => s.nav);
+  const navigating = useVehicleStore((s) => s.navigating);
+  const destination = useVehicleStore((s) => s.destination);
+  const position = useVehicleStore((s) => s.position);
 
   const overLimit =
     mode === "drive" &&
@@ -93,9 +95,13 @@ export function HudOverlay() {
         </div>
       )}
 
-      {mode === "drive" && nav ? (
+      {mode === "drive" && navigating && destination ? (
         <div key="drive-nav" className="absolute hud-fade-in safe-bottom safe-left">
-          <NavStatus nav={nav} />
+          <NavStatus
+            destinationName={destination.name}
+            destinationLocation={destination.location}
+            position={position}
+          />
         </div>
       ) : null}
     </div>
