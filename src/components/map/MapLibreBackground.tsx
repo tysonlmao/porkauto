@@ -8,10 +8,12 @@ import {
   findNextTurn,
   haversineM,
 } from "@/lib/navigationCamera";
+import {
+  PORKAUTO_BASEMAP_STYLE,
+  applyPorkautoHudTheme,
+  applyRouteLineStyle,
+} from "@/lib/mapTheme";
 import { cn } from "@/lib/utils";
-
-const DARK_STYLE =
-  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 type MapLibreBackgroundProps = {
   mode: AppMode;
@@ -20,6 +22,10 @@ type MapLibreBackgroundProps = {
   destination: { name: string; location: LatLng } | null;
   hasLiveLocation: boolean;
   navigating: boolean;
+  /** When true, camera follows the vehicle cursor. */
+  following: boolean;
+  /** Fired when the user pans/zooms the map (pause follow). */
+  onUserInteract?: () => void;
   className?: string;
 };
 
@@ -32,12 +38,14 @@ function createArrowElement(): HTMLDivElement {
   el.className = "porkauto-position-arrow";
   el.innerHTML = `
     <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M18 4 L30 30 L18 24 L6 30 Z" fill="#3B82F6" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M18 4 L30 30 L18 24 L6 30 Z" fill="#60A5FA" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
     </svg>
   `;
   el.style.width = "36px";
   el.style.height = "36px";
   el.style.transformOrigin = "center center";
+  el.style.filter = "drop-shadow(0 0 6px rgba(96,165,250,0.55))";
+  el.style.pointerEvents = "none";
   return el;
 }
 
@@ -46,13 +54,72 @@ function createDestinationElement(): HTMLDivElement {
   el.className = "porkauto-destination-pin";
   el.innerHTML = `
     <svg width="28" height="36" viewBox="0 0 28 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#7CFF9A"/>
+      <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#FF4D6A"/>
       <circle cx="14" cy="14" r="5" fill="#0b0b0b"/>
     </svg>
   `;
   el.style.width = "28px";
   el.style.height = "36px";
+  el.style.filter = "drop-shadow(0 0 8px rgba(255,77,106,0.55))";
+  el.style.pointerEvents = "none";
   return el;
+}
+
+function addRouteLayers(map: maplibregl.Map) {
+  if (map.getSource("route")) return;
+
+  map.addSource("route", {
+    type: "geojson",
+    data: emptyLine(),
+  });
+
+  map.addLayer({
+    id: "route-glow-outer",
+    type: "line",
+    source: "route",
+    layout: {
+      "line-join": "round",
+      "line-cap": "round",
+      visibility: "none",
+    },
+    paint: {
+      "line-color": "#ff1a3c",
+      "line-width": 18,
+      "line-opacity": 0.18,
+      "line-blur": 4,
+    },
+  });
+
+  map.addLayer({
+    id: "route-glow",
+    type: "line",
+    source: "route",
+    layout: {
+      "line-join": "round",
+      "line-cap": "round",
+    },
+    paint: {
+      "line-color": "#34d399",
+      "line-width": 10,
+      "line-opacity": 0.22,
+      "line-blur": 1.5,
+    },
+  });
+
+  map.addLayer({
+    id: "route-line",
+    type: "line",
+    source: "route",
+    layout: {
+      "line-join": "round",
+      "line-cap": "round",
+    },
+    paint: {
+      "line-color": "#6ee7b7",
+      "line-width": 4,
+      "line-opacity": 0.9,
+    },
+  });
 }
 
 export function MapLibreBackground({
@@ -62,6 +129,8 @@ export function MapLibreBackground({
   destination,
   hasLiveLocation,
   navigating,
+  following,
+  onUserInteract,
   className,
 }: MapLibreBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,24 +142,43 @@ export function MapLibreBackground({
   const lastBearing = useRef(0);
   const snappedToLive = useRef(false);
   const previewFitted = useRef(false);
+  /** Sync flag so follow stops mid-gesture before React re-renders (IMU easeTo was cancelling touch pans). */
+  const followingRef = useRef(following);
+  const onUserInteractRef = useRef(onUserInteract);
+  onUserInteractRef.current = onUserInteract;
+
+  useEffect(() => {
+    followingRef.current = following;
+  }, [following]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: DARK_STYLE,
+      style: PORKAUTO_BASEMAP_STYLE,
       center: toLngLat(position),
       zoom: 14,
       pitch: 0,
       bearing: 0,
-      interactive: false,
+      interactive: true,
+      dragPan: true,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+      touchZoomRotate: true,
+      cooperativeGestures: false,
       attributionControl: false,
     });
 
+    map.dragPan.enable();
+    map.touchZoomRotate.enable();
+    map.touchZoomRotate.disableRotation();
+    map.dragRotate.disable();
+    map.getCanvas().style.touchAction = "none";
+
     const arrowEl = createArrowElement();
     arrowElRef.current = arrowEl;
-    arrowEl.style.transform = `rotate(${position.heading}deg)`;
 
     const arrowMarker = new maplibregl.Marker({
       element: arrowEl,
@@ -103,46 +191,37 @@ export function MapLibreBackground({
     arrowMarkerRef.current = arrowMarker;
     lastCameraPos.current = { lat: position.lat, lng: position.lng };
 
-    map.on("load", () => {
-      map.addSource("route", {
-        type: "geojson",
-        data: emptyLine(),
-      });
+    const onStyleReady = () => {
+      applyPorkautoHudTheme(map);
+      addRouteLayers(map);
+      applyRouteLineStyle(map, false);
+    };
 
-      map.addLayer({
-        id: "route-glow",
-        type: "line",
-        source: "route",
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
-        paint: {
-          "line-color": "#4ade80",
-          "line-width": 8,
-          "line-opacity": 0.25,
-        },
-      });
+    const pauseFollowFromUser = () => {
+      if (!followingRef.current) return;
+      followingRef.current = false;
+      map.stop();
+      onUserInteractRef.current?.();
+    };
 
-      map.addLayer({
-        id: "route-line",
-        type: "line",
-        source: "route",
-        layout: {
-          "line-join": "round",
-          "line-cap": "round",
-        },
-        paint: {
-          "line-color": "#4ade80",
-          "line-width": 4,
-          "line-opacity": 0.95,
-        },
-      });
-    });
+    // dragstart covers mouse + single-finger touch pan; zoomstart covers pinch.
+    const onDragStart = () => pauseFollowFromUser();
+    const onZoomStart = (
+      e: maplibregl.MapLibreEvent & { originalEvent?: Event },
+    ) => {
+      if (e.originalEvent) pauseFollowFromUser();
+    };
+
+    map.on("load", onStyleReady);
+    map.on("style.load", onStyleReady);
+    map.on("dragstart", onDragStart);
+    map.on("zoomstart", onZoomStart);
 
     mapRef.current = map;
 
     return () => {
+      map.off("dragstart", onDragStart);
+      map.off("zoomstart", onZoomStart);
       arrowMarker.remove();
       destMarkerRef.current?.remove();
       map.remove();
@@ -166,9 +245,10 @@ export function MapLibreBackground({
     if (!marker || !el || !map) return;
 
     marker.setLngLat(toLngLat(position));
-    // Map bearing matches heading → arrow points up the screen.
     el.style.transform = "rotate(0deg)";
 
+    // Prefer ref so a touch pan that just paused follow isn't overwritten by this tick.
+    if (!followingRef.current || !following) return;
     if (mode !== "drive" && mode !== "park") return;
 
     const turn = route?.coordinates?.length
@@ -220,7 +300,7 @@ export function MapLibreBackground({
 
     lastCameraPos.current = { lat: position.lat, lng: position.lng };
     lastBearing.current = bearing;
-  }, [position, mode, hasLiveLocation, navigating, route]);
+  }, [position, mode, hasLiveLocation, navigating, route, following]);
 
   // Destination pin
   useEffect(() => {
@@ -245,12 +325,19 @@ export function MapLibreBackground({
     }
   }, [destination]);
 
-  // Route geometry + preview fit (not while actively navigating)
+  // Route geometry + color (preview green vs navigating glow red)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const apply = () => {
+      if (!map.getSource("route")) {
+        applyPorkautoHudTheme(map);
+        addRouteLayers(map);
+      }
+
+      applyRouteLineStyle(map, navigating);
+
       const source = map.getSource("route") as
         | maplibregl.GeoJSONSource
         | undefined;
@@ -301,7 +388,7 @@ export function MapLibreBackground({
   return (
     <div
       ref={containerRef}
-      className={cn("h-full w-full bg-[#0b0b0b]", className)}
+      className={cn("h-full w-full touch-none bg-[#07090d]", className)}
     />
   );
 }
