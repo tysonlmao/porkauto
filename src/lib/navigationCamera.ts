@@ -110,3 +110,65 @@ export function birdsEyeZoomForTurnDistance(distanceM: number | null): number {
   if (distanceM < 1100) return 14.1;
   return 13.3;
 }
+
+export type ActiveManeuver = {
+  instruction: string;
+  distanceM: number;
+  type: string;
+  modifier?: string;
+  index: number;
+};
+
+/**
+ * Pick the upcoming route step the driver should act on.
+ * Skips departed steps once within ~25 m past their maneuver point.
+ */
+export function findNextManeuver(
+  position: LatLng,
+  steps: Array<{
+    instruction: string;
+    distanceM: number;
+    location: LatLng;
+    type: string;
+    modifier?: string;
+  }>,
+): ActiveManeuver | null {
+  if (!steps.length) return null;
+
+  const PASS_WITHIN_M = 25;
+  let current = 0;
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    if (step.type === "depart") {
+      current = Math.min(i + 1, steps.length - 1);
+      continue;
+    }
+    const dist = haversineM(position, step.location);
+    // Still approaching this maneuver (or just arrived).
+    if (dist > PASS_WITHIN_M || i === steps.length - 1) {
+      current = i;
+      break;
+    }
+    current = Math.min(i + 1, steps.length - 1);
+  }
+
+  const step = steps[current]!;
+  return {
+    instruction: step.instruction,
+    distanceM: haversineM(position, step.location),
+    type: step.type,
+    modifier: step.modifier,
+    index: current,
+  };
+}
+
+export function formatManeuverDistance(meters: number): string {
+  if (meters < 1000) {
+    const rounded =
+      meters < 50 ? Math.round(meters / 10) * 10 : Math.round(meters / 50) * 50;
+    return `${Math.max(10, rounded)} m`;
+  }
+  const km = meters / 1000;
+  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+}

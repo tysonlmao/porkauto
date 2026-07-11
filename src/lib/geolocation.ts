@@ -134,7 +134,7 @@ const MOBILE_ATTEMPTS: PositionOptions[] = [
 /** Prefer GPS when the platform can provide it. */
 const watchOptions: PositionOptions = {
   enableHighAccuracy: true,
-  maximumAge: 5_000,
+  maximumAge: 0,
   timeout: 30_000,
 };
 

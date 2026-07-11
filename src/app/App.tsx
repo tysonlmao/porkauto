@@ -9,6 +9,7 @@ import { useDeviceLocation } from "@/hooks/useDeviceLocation";
 import { useDeviceMotion } from "@/hooks/useDeviceMotion";
 import { useNetworkConnection } from "@/hooks/useNetworkConnection";
 import { usePairingSync } from "@/hooks/usePairingSync";
+import { useSpeedLimit } from "@/hooks/useSpeedLimit";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
 import { useVehicleStore } from "@/store/vehicle";
 
@@ -17,6 +18,7 @@ export function App() {
   useNetworkConnection(true);
   useDeviceLocation(setupComplete);
   useDeviceMotion(setupComplete);
+  useSpeedLimit(setupComplete);
   usePairingSync(setupComplete);
   useSpotifyPlayer(setupComplete);
 

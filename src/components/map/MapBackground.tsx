@@ -18,6 +18,7 @@ export function MapBackground({ className }: MapBackgroundProps) {
   const route = useVehicleStore((s) => s.route);
   const destination = useVehicleStore((s) => s.destination);
   const usingGps = useVehicleStore((s) => s.usingGps);
+  const locationSource = useVehicleStore((s) => s.locationSource);
   const navigating = useVehicleStore((s) => s.navigating);
   const [following, setFollowing] = useState(true);
 
@@ -48,6 +49,7 @@ export function MapBackground({ className }: MapBackgroundProps) {
         route={route}
         destination={destination}
         hasLiveLocation={usingGps}
+        pinTight={locationSource === "gps"}
         navigating={navigating}
         following={following}
         onUserInteract={() => setFollowing(false)}
