@@ -76,6 +76,11 @@ export function normalizeHeading(deg: number): number {
   return ((deg % 360) + 360) % 360;
 }
 
+/** Signed shortest angle delta from a → b in (−180, 180]. */
+export function shortestAngleDelta(from: number, to: number): number {
+  return ((to - from + 540) % 360) - 180;
+}
+
 /**
  * Compass heading from DeviceOrientation.
  * Prefers webkitCompassHeading on iOS.

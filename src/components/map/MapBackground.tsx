@@ -28,20 +28,14 @@ export function MapBackground({ className }: MapBackgroundProps) {
   }, [navigating]);
 
   const dimmed = !navigating && mode !== "drive";
-  const hidden = mode === "connecting";
 
   return (
     <div
       className={cn(
         "absolute inset-0 z-0 transition-all duration-700 ease-out",
-        hidden
-          ? "scale-100 opacity-0"
-          : dimmed
-            ? "scale-[1.02] opacity-40"
-            : "scale-100 opacity-100",
+        dimmed ? "scale-[1.02] opacity-40" : "scale-100 opacity-100",
         className,
       )}
-      aria-hidden={mode === "connecting"}
     >
       <MapLibreBackground
         mode={mode}
@@ -60,7 +54,7 @@ export function MapBackground({ className }: MapBackgroundProps) {
           dimmed ? "opacity-60" : "opacity-0",
         )}
       />
-      {!hidden && !following ? (
+      {!following ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-[7.5rem] safe-bottom">
           <button
             type="button"

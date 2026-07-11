@@ -7,9 +7,12 @@ import {
   buildAuthorizeUrl,
   exchangeAuthorizationCode,
   fetchPlaybackState,
+  fetchPlaybackQueue,
   fetchSpotifyProfile,
+  fetchUserPlaylists,
   getSpotifyAndroidRedirect,
   getSpotifyRedirectUri,
+  playContextUri,
   refreshAccessToken,
   spotifyConfigured,
   transferPlayback,
@@ -369,6 +372,28 @@ deviceIntegrationRoutes.get(
   },
 );
 
+deviceIntegrationRoutes.get(
+  "/:id/integrations/spotify/queue",
+  requireAuth,
+  async (c) => {
+    const id = c.req.param("id");
+    const auth = c.get("auth");
+    await requireDeviceAccess(auth, id);
+
+    const { accessToken } = await getValidSpotifyAccessToken(id);
+    try {
+      const queue = await fetchPlaybackQueue(accessToken, 3);
+      return c.json({ queue });
+    } catch (err) {
+      console.warn(
+        "[spotify] queue failed:",
+        err instanceof Error ? err.message : err,
+      );
+      return c.json({ queue: [] });
+    }
+  },
+);
+
 deviceIntegrationRoutes.post(
   "/:id/integrations/spotify/transfer",
   requireAuth,
@@ -424,6 +449,71 @@ deviceIntegrationRoutes.post(
 
     const { accessToken } = await getValidSpotifyAccessToken(id);
     await controlPlayback(accessToken, action, body.currentlyPlaying);
+    return c.json({ ok: true });
+  },
+);
+
+deviceIntegrationRoutes.get(
+  "/:id/integrations/spotify/playlists",
+  requireAuth,
+  async (c) => {
+    const id = c.req.param("id");
+    const auth = c.get("auth");
+    await requireDeviceAccess(auth, id);
+
+    const { accessToken } = await getValidSpotifyAccessToken(id);
+    try {
+      const playlists = await fetchUserPlaylists(accessToken);
+      return c.json({ playlists });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not load playlists";
+      const status = message.includes("401") || message.includes("403")
+        ? 403
+        : 502;
+      throw new HTTPException(status, { message });
+    }
+  },
+);
+
+deviceIntegrationRoutes.post(
+  "/:id/integrations/spotify/play",
+  requireAuth,
+  async (c) => {
+    const id = c.req.param("id");
+    const auth = c.get("auth");
+    await requireDeviceAccess(auth, id);
+
+    const body = await c.req.json<{
+      contextUri?: string;
+      spotifyDeviceId?: string;
+    }>();
+    const contextUri = body.contextUri?.trim();
+    if (!contextUri || !contextUri.startsWith("spotify:")) {
+      throw new HTTPException(400, {
+        message: "contextUri must be a Spotify URI",
+      });
+    }
+
+    const { accessToken } = await getValidSpotifyAccessToken(id);
+    try {
+      await playContextUri(
+        accessToken,
+        contextUri,
+        body.spotifyDeviceId?.trim() || undefined,
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not start playlist";
+      const status =
+        message.includes("No active Spotify device") ||
+        message.includes("404")
+          ? 404
+          : message.includes("Premium") || message.includes("403")
+            ? 403
+            : 502;
+      throw new HTTPException(status, { message });
+    }
     return c.json({ ok: true });
   },
 );

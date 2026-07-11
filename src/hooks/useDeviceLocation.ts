@@ -7,50 +7,110 @@ import {
   type DeviceLocation,
   type LocationSource,
 } from "@/lib/geolocation";
+import { PositionFilter } from "@/lib/positionFilter";
 import { useVehicleStore } from "@/store/vehicle";
-
-function applyLocation(loc: DeviceLocation) {
-  const state = useVehicleStore.getState();
-  // Never downgrade a GPS fix back to IP.
-  if (state.locationSource === "gps" && loc.source === "ip") return;
-  // GPS-capable devices must not accept IP at all.
-  if (loc.source === "ip" && !shouldUseIpLocationFallback()) return;
-
-  state.setPosition({ lat: loc.lat, lng: loc.lng });
-  // Course-over-ground only when IMU compass isn't already driving the map.
-  if (loc.heading != null) {
-    state.setHeadingFromSensor(loc.heading, "gps");
-  }
-  // Only publish GPS speed when the receiver actually reported one.
-  // Missing speed leaves the accelerometer estimator in charge.
-  if (loc.speedMps != null && Number.isFinite(loc.speedMps) && loc.speedMps >= 0) {
-    state.setSpeedFromSensor(loc.speedMps * 3.6, "gps");
-  }
-  state.setLocationStatus({
-    locating: false,
-    error: null,
-    usingGps: true,
-    locationSource: loc.source,
-  });
-}
 
 /**
  * Soft-start location after setup.
  * Uses GPS whenever the browser can provide it; IP is only an interim/fallback
  * so the car cursor still appears quickly on Electrobun/desktop.
+ * Filters position (EMA + short DR + soft route snap) for a stabler cursor.
  */
 export function useDeviceLocation(enabled: boolean) {
   const setLocationStatus = useVehicleStore((s) => s.setLocationStatus);
   const rerouteTimer = useRef<number | null>(null);
   const clearErrorTimer = useRef<number | null>(null);
+  const filterRef = useRef(new PositionFilter());
+  const lastLocRef = useRef<DeviceLocation | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
 
     let cancelled = false;
     let stopWatch: (() => void) | undefined;
+    let drTimer: number | null = null;
 
+    filterRef.current.reset();
     setLocationStatus({ locating: true, error: null });
+
+    function applyLocation(loc: DeviceLocation) {
+      const state = useVehicleStore.getState();
+      if (state.locationSource === "gps" && loc.source === "ip") return;
+      if (loc.source === "ip" && !shouldUseIpLocationFallback()) return;
+
+      lastLocRef.current = loc;
+      const filtered = filterRef.current.updateGps(
+        { lat: loc.lat, lng: loc.lng },
+        loc.accuracyM ?? null,
+      );
+
+      let snapped = filtered;
+      if (state.navigating && state.route?.coordinates?.length) {
+        const soft = filterRef.current.softSnapToRoute(
+          state.route.coordinates,
+          25,
+          0.35,
+        );
+        if (soft) snapped = soft;
+      }
+
+      state.setPosition({ lat: snapped.lat, lng: snapped.lng });
+
+      if (loc.heading != null) {
+        if (state.headingSource === "imu") {
+          const speedKmh =
+            loc.speedMps != null && Number.isFinite(loc.speedMps)
+              ? loc.speedMps * 3.6
+              : state.speedKmh;
+          state.calibrateHeadingFromGpsCourse(loc.heading, speedKmh);
+        } else {
+          state.setHeadingFromSensor(loc.heading, "gps");
+        }
+      }
+
+      if (
+        loc.speedMps != null &&
+        Number.isFinite(loc.speedMps) &&
+        loc.speedMps >= 0
+      ) {
+        state.setSpeedFromSensor(loc.speedMps * 3.6, "gps");
+      }
+
+      state.setLocationStatus({
+        locating: false,
+        error: null,
+        usingGps: true,
+        locationSource: loc.source,
+      });
+    }
+
+    function tickDeadReckon() {
+      if (cancelled) return;
+      const state = useVehicleStore.getState();
+      if (state.locationSource !== "gps") return;
+
+      const speedMps = state.speedKmh / 3.6;
+      const advanced = filterRef.current.tick(state.position.heading, speedMps);
+      if (!advanced) return;
+
+      let next = advanced;
+      if (state.navigating && state.route?.coordinates?.length) {
+        const soft = filterRef.current.softSnapToRoute(
+          state.route.coordinates,
+          25,
+          0.2,
+        );
+        if (soft) next = soft;
+      }
+
+      const cur = state.position;
+      if (
+        Math.abs(cur.lat - next.lat) > 1e-7 ||
+        Math.abs(cur.lng - next.lng) > 1e-7
+      ) {
+        state.setPosition({ lat: next.lat, lng: next.lng });
+      }
+    }
 
     void (async () => {
       try {
@@ -80,7 +140,6 @@ export function useDeviceLocation(enabled: boolean) {
 
       if (cancelled) return;
 
-      // Always watch — upgrades IP → GPS when the platform eventually provides it.
       stopWatch = watchDeviceLocation(
         (loc) => {
           applyLocation(loc);
@@ -98,7 +157,6 @@ export function useDeviceLocation(enabled: boolean) {
         (err) => {
           if (err.code === "timeout") return;
           const { usingGps, locationSource } = useVehicleStore.getState();
-          // Keep an existing fix (IP or GPS); only surface hard denials.
           if (usingGps && err.code !== "denied") return;
           setLocationStatus({
             locating: false,
@@ -108,11 +166,14 @@ export function useDeviceLocation(enabled: boolean) {
           });
         },
       );
+
+      drTimer = window.setInterval(tickDeadReckon, 100);
     })();
 
     return () => {
       cancelled = true;
       stopWatch?.();
+      if (drTimer != null) window.clearInterval(drTimer);
       if (rerouteTimer.current != null) {
         window.clearTimeout(rerouteTimer.current);
       }

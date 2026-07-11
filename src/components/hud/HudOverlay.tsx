@@ -1,7 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { findNextManeuver } from "@/lib/navigationCamera";
 import { useVehicleStore } from "@/store/vehicle";
 import { Clock } from "./Clock";
-import { ConnectionStatus } from "./ConnectionStatus";
 import { IndevButton } from "./IndevButton";
 import { ManeuverBanner } from "./ManeuverBanner";
 import { MusicWidget } from "./MusicWidget";
@@ -10,18 +10,11 @@ import { PrndlIndicator } from "./PrndlIndicator";
 import { SpeedLimitBadge } from "./SpeedLimitBadge";
 import { Speedometer } from "./Speedometer";
 
-function modeLabel(mode: "connecting" | "park" | "drive"): string {
-  if (mode === "connecting") return "connecting";
-  if (mode === "park") return "park mode";
-  return "drive mode";
-}
-
 export function HudOverlay() {
   const mode = useVehicleStore((s) => s.mode);
   const gear = useVehicleStore((s) => s.gear);
   const speedKmh = useVehicleStore((s) => s.speedKmh);
   const speedLimitKmh = useVehicleStore((s) => s.speedLimitKmh);
-  const connection = useVehicleStore((s) => s.connection);
   const music = useVehicleStore((s) => s.music);
   const spotifyNeedsGesture = useVehicleStore((s) => s.spotifyNeedsGesture);
   const navigating = useVehicleStore((s) => s.navigating);
@@ -29,6 +22,23 @@ export function HudOverlay() {
   const nav = useVehicleStore((s) => s.nav);
   const route = useVehicleStore((s) => s.route);
   const position = useVehicleStore((s) => s.position);
+
+  const parkClockRef = useRef<HTMLDivElement>(null);
+  const [parkClockWidth, setParkClockWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (mode !== "park") {
+      setParkClockWidth(null);
+      return;
+    }
+    const el = parkClockRef.current;
+    if (!el) return;
+    const sync = () => setParkClockWidth(el.getBoundingClientRect().width);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mode]);
 
   const overLimit =
     mode === "drive" &&
@@ -56,69 +66,69 @@ export function HudOverlay() {
         </button>
       ) : null}
 
-      <p className="absolute text-[11px] font-medium lowercase tracking-[0.16em] text-zinc-600 safe-top safe-left">
-        {modeLabel(mode)}
-      </p>
-
       <div className="absolute flex flex-col items-end gap-2.5 safe-top safe-right">
-        <ConnectionStatus connection={connection} />
-        {mode !== "connecting" ? (
-          <div
-            key={`status-${mode}`}
-            className="hud-fade-in flex flex-col items-end gap-2.5"
-          >
-            <PrndlIndicator gear={gear} />
-            <Speedometer speedKmh={speedKmh} overLimit={overLimit} />
-            {mode === "drive" && speedLimitKmh != null ? (
-              <div className="mt-1">
-                <SpeedLimitBadge limitKmh={speedLimitKmh} />
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        <div
+          key={`status-${mode}`}
+          className="hud-fade-in flex flex-col items-end gap-2.5"
+        >
+          <PrndlIndicator gear={gear} />
+          {mode !== "park" ? (
+            <>
+              <Speedometer speedKmh={speedKmh} overLimit={overLimit} />
+              {mode === "drive" && speedLimitKmh != null ? (
+                <div className="mt-1">
+                  <SpeedLimitBadge limitKmh={speedLimitKmh} />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
 
-      {mode === "connecting" ? (
-        <div
-          key="connecting"
-          className="absolute inset-0 flex items-center justify-center hud-fade-in"
-        >
-          <p className="hud-breathe text-5xl font-semibold tracking-[-0.03em] text-white md:text-6xl">
-            Connecting...
-          </p>
-        </div>
-      ) : null}
-
       {mode === "park" ? (
-        <div
-          key="park"
-          className="absolute inset-0 flex items-center justify-center hud-fade-in"
-        >
-          <Clock variant="hero" />
+        <div key="park" className="absolute inset-0 hud-fade-in">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div ref={parkClockRef} className="w-max max-w-[calc(100vw-3rem)]">
+              <Clock variant="hero" />
+            </div>
+          </div>
+          {music ? (
+            <div className="absolute inset-x-0 bottom-0 flex justify-center pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
+              <div
+                className="max-w-[calc(100vw-3rem)]"
+                style={
+                  parkClockWidth != null
+                    ? { width: parkClockWidth }
+                    : undefined
+                }
+              >
+                <MusicWidget
+                  track={music}
+                  variant="park"
+                  className="w-full max-w-none"
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {/* Left stack: time (drive), music, then indev controls */}
+      {/* Left stack: time (drive), music, then indev status — aligned with top HUD */}
       {mode === "drive" ? (
         <div
           key="drive-left"
-          className="absolute top-[calc(3.25rem+env(safe-area-inset-top,0px))] flex flex-col items-start gap-5 hud-fade-in safe-left"
+          className="absolute flex flex-col items-start gap-5 hud-fade-in safe-top safe-left"
         >
           <Clock variant="compact" />
           {music ? <MusicWidget track={music} /> : null}
           <IndevButton className="mt-1" />
         </div>
-      ) : mode === "park" ? (
+      ) : (
         <div
           key="park-left"
-          className="absolute top-[calc(3.5rem+env(safe-area-inset-top,0px))] flex flex-col items-start gap-5 hud-fade-in safe-left"
+          className="absolute flex flex-col items-start gap-5 hud-fade-in safe-top safe-left"
         >
-          {music ? <MusicWidget track={music} /> : null}
           <IndevButton className="mt-1" />
-        </div>
-      ) : (
-        <div className="absolute top-[calc(3.5rem+env(safe-area-inset-top,0px))] safe-left">
-          <IndevButton />
         </div>
       )}
 
