@@ -21,6 +21,8 @@ type MapLibreBackgroundProps = {
   route: ActiveRoute | null;
   destination: { name: string; location: LatLng } | null;
   hasLiveLocation: boolean;
+  /** True GPS (not IP) — lock camera to cursor with jumpTo / short ease. */
+  pinTight: boolean;
   navigating: boolean;
   /** When true, camera follows the vehicle cursor. */
   following: boolean;
@@ -128,6 +130,7 @@ export function MapLibreBackground({
   route,
   destination,
   hasLiveLocation,
+  pinTight,
   navigating,
   following,
   onUserInteract,
@@ -137,7 +140,6 @@ export function MapLibreBackground({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const arrowMarkerRef = useRef<maplibregl.Marker | null>(null);
   const destMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const arrowElRef = useRef<HTMLDivElement | null>(null);
   const lastCameraPos = useRef<LatLng | null>(null);
   const lastBearing = useRef(0);
   const snappedToLive = useRef(false);
@@ -178,12 +180,12 @@ export function MapLibreBackground({
     map.getCanvas().style.touchAction = "none";
 
     const arrowEl = createArrowElement();
-    arrowElRef.current = arrowEl;
 
     const arrowMarker = new maplibregl.Marker({
       element: arrowEl,
-      rotationAlignment: "map",
-      pitchAlignment: "map",
+      // Viewport-aligned: arrow stays screen-up; map bearing rotates under it.
+      rotationAlignment: "viewport",
+      pitchAlignment: "viewport",
     })
       .setLngLat(toLngLat(position))
       .addTo(map);
@@ -228,7 +230,6 @@ export function MapLibreBackground({
       mapRef.current = null;
       arrowMarkerRef.current = null;
       destMarkerRef.current = null;
-      arrowElRef.current = null;
       lastCameraPos.current = null;
       lastBearing.current = 0;
       snappedToLive.current = false;
@@ -237,15 +238,14 @@ export function MapLibreBackground({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Car cursor + birds-eye follow (pitch 0), rotated with device/GPS heading.
+  // Car cursor + birds-eye follow (pitch 0). Map bearing = device/GPS heading;
+  // arrow stays screen-up (viewport-aligned). GPS pinTight locks camera to cursor.
   useEffect(() => {
     const marker = arrowMarkerRef.current;
-    const el = arrowElRef.current;
     const map = mapRef.current;
-    if (!marker || !el || !map) return;
+    if (!marker || !map) return;
 
     marker.setLngLat(toLngLat(position));
-    el.style.transform = "rotate(0deg)";
 
     // Prefer ref so a touch pan that just paused follow isn't overwritten by this tick.
     if (!followingRef.current || !following) return;
@@ -273,21 +273,27 @@ export function MapLibreBackground({
       pitch: 0,
     };
 
-    if (navigating) {
-      if (firstLiveSnap || movedFar) {
-        map.jumpTo(camera);
+    if (firstLiveSnap || movedFar) {
+      map.jumpTo(
+        navigating
+          ? camera
+          : {
+              center: toLngLat(position),
+              zoom: Math.max(map.getZoom(), 15),
+              bearing,
+              pitch: 0,
+            },
+      );
+      if (hasLiveLocation) snappedToLive.current = true;
+    } else if (pinTight) {
+      // GPS: stay glued to the cursor — jump for position, short ease only for large heading snaps.
+      if (headingDelta > 12) {
+        map.easeTo({ ...camera, duration: 80, essential: true });
       } else {
-        map.easeTo({ ...camera, duration: 280, essential: true });
+        map.jumpTo(camera);
       }
-      if (hasLiveLocation) snappedToLive.current = true;
-    } else if (firstLiveSnap || movedFar) {
-      map.jumpTo({
-        center: toLngLat(position),
-        zoom: Math.max(map.getZoom(), 15),
-        bearing,
-        pitch: 0,
-      });
-      if (hasLiveLocation) snappedToLive.current = true;
+    } else if (navigating) {
+      map.easeTo({ ...camera, duration: 280, essential: true });
     } else if (mode === "park" || mode === "drive") {
       map.easeTo({
         center: toLngLat(position),
@@ -300,7 +306,7 @@ export function MapLibreBackground({
 
     lastCameraPos.current = { lat: position.lat, lng: position.lng };
     lastBearing.current = bearing;
-  }, [position, mode, hasLiveLocation, navigating, route, following]);
+  }, [position, mode, hasLiveLocation, pinTight, navigating, route, following]);
 
   // Destination pin
   useEffect(() => {

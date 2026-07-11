@@ -258,8 +258,14 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   setHeadingFromSensor: (heading, source) => {
     const state = get();
     if (state.obdConnected && source !== "obd") return;
-    // IMU compass preferred over GPS course when both exist
-    if (source === "gps" && state.headingSource === "imu") return;
+    // Once IMU is driving the map, GPS course / route bearing must not override.
+    if (
+      state.headingSource === "imu" &&
+      source !== "imu" &&
+      source !== "obd"
+    ) {
+      return;
+    }
     set({
       position: { ...state.position, heading },
       headingSource: source,

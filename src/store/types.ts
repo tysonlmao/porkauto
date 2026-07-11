@@ -45,10 +45,20 @@ export type VehiclePosition = LatLng & {
   heading: number;
 };
 
+export type RouteStep = {
+  instruction: string;
+  distanceM: number;
+  durationSec: number;
+  location: LatLng;
+  type: string;
+  modifier?: string;
+};
+
 export type ActiveRoute = {
   coordinates: LatLng[];
   durationSec: number;
   distanceM: number;
+  steps: RouteStep[];
 };
 
 export type VehicleState = {

@@ -5,10 +5,20 @@ export type GeocodeResult = {
   location: LatLngLiteral;
 };
 
+export type RouteStepResult = {
+  instruction: string;
+  distanceM: number;
+  durationSec: number;
+  location: LatLngLiteral;
+  type: string;
+  modifier?: string;
+};
+
 export type RouteResult = {
   coordinates: LatLngLiteral[];
   durationSec: number;
   distanceM: number;
+  steps: RouteStepResult[];
 };
 
 function toRad(deg: number): number {
@@ -107,6 +117,7 @@ export async function fetchDrivingRoute(
     distanceM: data.distanceM,
     durationSec: data.durationSec,
     coordinates: data.coordinates,
+    steps: data.steps ?? [],
   };
 }
 
@@ -131,5 +142,21 @@ export function straightRoute(
     coordinates: [from, to],
     distanceM,
     durationSec,
+    steps: [
+      {
+        instruction: "Head to destination",
+        distanceM,
+        durationSec,
+        location: from,
+        type: "depart",
+      },
+      {
+        instruction: "Arrive at destination",
+        distanceM: 0,
+        durationSec: 0,
+        location: to,
+        type: "arrive",
+      },
+    ],
   };
 }

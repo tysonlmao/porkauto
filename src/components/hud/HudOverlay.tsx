@@ -1,7 +1,9 @@
+import { findNextManeuver } from "@/lib/navigationCamera";
 import { useVehicleStore } from "@/store/vehicle";
 import { Clock } from "./Clock";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { IndevButton } from "./IndevButton";
+import { ManeuverBanner } from "./ManeuverBanner";
 import { MusicWidget } from "./MusicWidget";
 import { NavStatus } from "./NavStatus";
 import { PrndlIndicator } from "./PrndlIndicator";
@@ -25,12 +27,18 @@ export function HudOverlay() {
   const navigating = useVehicleStore((s) => s.navigating);
   const destination = useVehicleStore((s) => s.destination);
   const nav = useVehicleStore((s) => s.nav);
+  const route = useVehicleStore((s) => s.route);
   const position = useVehicleStore((s) => s.position);
 
   const overLimit =
     mode === "drive" &&
     speedLimitKmh != null &&
     speedKmh > speedLimitKmh;
+
+  const nextManeuver =
+    navigating && route?.steps?.length
+      ? findNextManeuver(position, route.steps)
+      : null;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 select-none">
@@ -113,6 +121,20 @@ export function HudOverlay() {
           <IndevButton />
         </div>
       )}
+
+      {mode === "drive" && navigating && nextManeuver ? (
+        <div
+          key="drive-maneuver"
+          className="absolute inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-20 flex justify-center px-4 hud-fade-in"
+        >
+          <ManeuverBanner
+            instruction={nextManeuver.instruction}
+            distanceM={nextManeuver.distanceM}
+            type={nextManeuver.type}
+            modifier={nextManeuver.modifier}
+          />
+        </div>
+      ) : null}
 
       {mode === "drive" && navigating && destination ? (
         <div key="drive-nav" className="absolute hud-fade-in safe-bottom safe-left">
