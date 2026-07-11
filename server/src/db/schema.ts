@@ -45,6 +45,8 @@ export const devices = pgTable(
     deviceSecretHash: text("device_secret_hash"),
     /** Companion / mobile API key (returned once at claim). */
     ownerTokenHash: text("owner_token_hash"),
+    /** Friendly name of the phone/tablet that claimed this display. */
+    companionName: text("companion_name"),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     /** Set when the host confirms the companion claim. */
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),

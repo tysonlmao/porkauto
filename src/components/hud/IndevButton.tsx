@@ -12,6 +12,7 @@ export function IndevButton({ className }: IndevButtonProps) {
   const mode = useVehicleStore((s) => s.mode);
   const setupComplete = useVehicleStore((s) => s.setupComplete);
   const paired = useVehicleStore((s) => s.paired);
+  const companionName = useVehicleStore((s) => s.companionName);
   const deviceName = useVehicleStore((s) => s.deviceName);
   const setPosition = useVehicleStore((s) => s.setPosition);
   const position = useVehicleStore((s) => s.position);
@@ -76,8 +77,8 @@ export function IndevButton({ className }: IndevButtonProps) {
               paired ? "text-emerald-400/90" : "text-zinc-600",
             )}
           >
-            {paired && deviceName
-              ? `Paired to ${deviceName}`
+            {paired && (companionName || deviceName)
+              ? `Paired to ${companionName || deviceName}`
               : paired
                 ? "Paired"
                 : "Not paired"}

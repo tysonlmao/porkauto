@@ -89,6 +89,8 @@ export async function registerDevice(
 export type DeviceStatus = {
   deviceId: string;
   name: string;
+  /** Friendly name of the phone/tablet that claimed this display. */
+  companionName: string | null;
   config: Record<string, unknown>;
   paired: boolean;
   confirmed: boolean;
@@ -108,7 +110,13 @@ export async function fetchDeviceConfig(
     throw new Error(body?.error ?? `Failed to load config (${res.status})`);
   }
 
-  return (await res.json()) as DeviceStatus;
+  const data = (await res.json()) as DeviceStatus & {
+    companionName?: string | null;
+  };
+  return {
+    ...data,
+    companionName: data.companionName?.trim() || null,
+  };
 }
 
 export async function confirmDevicePairing(
@@ -126,7 +134,7 @@ export async function confirmDevicePairing(
   }
 
   const data = (await res.json()) as {
-    device: { id: string; name: string };
+    device: { id: string; name: string; companionName?: string | null };
     confirmed: boolean;
     paired: boolean;
     pairingStatus: "confirmed";
@@ -135,6 +143,7 @@ export async function confirmDevicePairing(
   return {
     deviceId: data.device.id,
     name: data.device.name,
+    companionName: data.device.companionName ?? null,
     config: {},
     paired: true,
     confirmed: true,

@@ -61,6 +61,7 @@ export function usePairingSync(enabled: boolean) {
           setPairingStatus({
             paired: true,
             deviceName: status.name || undefined,
+            companionName: status.companionName || undefined,
             homeAddress: home,
             savedLocations: parseSavedLocations(
               (status.config ?? {}) as Record<string, unknown>,
@@ -78,6 +79,7 @@ export function usePairingSync(enabled: boolean) {
         setPairingStatus({
           paired: false,
           deviceName: status.name || undefined,
+          companionName: status.companionName || undefined,
         });
       } catch {
         // Ignore transient errors (tunnel blips).

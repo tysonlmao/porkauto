@@ -36,7 +36,10 @@ type StoredDevice = {
   token: string;
   /** Host API key shared with the backend for this display instance. */
   apiKey?: string;
+  /** Registered display name. */
   name?: string;
+  /** Companion phone/tablet name from claim. */
+  companionName?: string;
   paired?: boolean;
 };
 
@@ -107,6 +110,7 @@ type VehicleActions = {
   setPairingStatus: (status: {
     paired: boolean;
     deviceName?: string | null;
+    companionName?: string | null;
     homeAddress?: string | null;
     savedLocations?: SavedLocation[];
   }) => void;
@@ -181,6 +185,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   deviceToken: stored?.token ?? null,
   deviceApiKey: stored?.apiKey ?? null,
   deviceName: stored?.name ?? null,
+  companionName: stored?.companionName ?? null,
   paired: stored?.paired ?? false,
   homeAddress: null,
   savedLocations: [],
@@ -430,6 +435,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     const toStore: StoredDevice = {
       ...device,
       name: device.name ?? "Porkauto Display",
+      companionName: device.companionName?.trim() || undefined,
       paired,
     };
     try {
@@ -445,6 +451,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       deviceToken: device.token,
       deviceApiKey: device.apiKey ?? null,
       deviceName: toStore.name ?? null,
+      companionName: toStore.companionName ?? null,
       paired,
       mode: "park",
       gear: "P",
@@ -483,6 +490,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       deviceToken: null,
       deviceApiKey: null,
       deviceName: null,
+      companionName: null,
       paired: false,
       homeAddress: null,
       savedLocations: [],
@@ -513,7 +521,13 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     });
   },
 
-  setPairingStatus: ({ paired, deviceName, homeAddress, savedLocations }) => {
+  setPairingStatus: ({
+    paired,
+    deviceName,
+    companionName,
+    homeAddress,
+    savedLocations,
+  }) => {
     try {
       const raw = localStorage.getItem(DEVICE_KEY);
       if (raw) {
@@ -524,6 +538,11 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
             ...stored,
             paired,
             ...(deviceName ? { name: deviceName } : {}),
+            ...(companionName
+              ? { companionName }
+              : companionName === null
+                ? { companionName: undefined }
+                : {}),
           }),
         );
       }
@@ -533,6 +552,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     set({
       paired,
       ...(deviceName !== undefined ? { deviceName } : {}),
+      ...(companionName !== undefined ? { companionName } : {}),
       ...(homeAddress !== undefined ? { homeAddress } : {}),
       ...(savedLocations !== undefined ? { savedLocations } : {}),
     });

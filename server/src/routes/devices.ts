@@ -78,13 +78,19 @@ deviceRoutes.post("/register", async (c) => {
 
 /**
  * Claim a display with its pairing code (pending until host confirms).
+ * Optional `name` is the companion phone/tablet's friendly device name.
  */
 deviceRoutes.post("/claim", async (c) => {
-  const body = await c.req.json<{ pairingCode?: string }>();
+  const body = await c.req.json<{ pairingCode?: string; name?: string }>();
   const pairingCode = body.pairingCode?.trim().toUpperCase();
   if (!pairingCode) {
     throw new HTTPException(400, { message: "pairingCode is required" });
   }
+
+  const companionName =
+    typeof body.name === "string" && body.name.trim()
+      ? body.name.trim().slice(0, 80)
+      : null;
 
   const device = await db.query.devices.findFirst({
     where: eq(devices.pairingCode, pairingCode),
@@ -104,6 +110,7 @@ deviceRoutes.post("/claim", async (c) => {
     .update(devices)
     .set({
       ownerTokenHash,
+      companionName,
       claimedAt,
       confirmedAt: null,
       lastSeenAt: claimedAt,
@@ -113,6 +120,7 @@ deviceRoutes.post("/claim", async (c) => {
       id: devices.id,
       name: devices.name,
       pairingCode: devices.pairingCode,
+      companionName: devices.companionName,
       claimedAt: devices.claimedAt,
       confirmedAt: devices.confirmedAt,
       config: devices.config,
@@ -162,6 +170,7 @@ deviceRoutes.post("/:id/confirm", requireAuth, async (c) => {
       id: devices.id,
       name: devices.name,
       pairingCode: devices.pairingCode,
+      companionName: devices.companionName,
       claimedAt: devices.claimedAt,
       confirmedAt: devices.confirmedAt,
     });
@@ -233,6 +242,7 @@ deviceRoutes.get("/:id/config", requireAuth, async (c) => {
   return c.json({
     deviceId: device.id,
     name: device.name,
+    companionName: device.companionName,
     config: device.config,
     paired: status !== "unpaired",
     confirmed: status === "confirmed",
@@ -268,6 +278,7 @@ deviceRoutes.delete("/:id/claim", requireAuth, async (c) => {
     .update(devices)
     .set({
       ownerTokenHash: null,
+      companionName: null,
       claimedAt: null,
       confirmedAt: null,
       pairedUserId: null,
@@ -279,6 +290,7 @@ deviceRoutes.delete("/:id/claim", requireAuth, async (c) => {
       id: devices.id,
       name: devices.name,
       pairingCode: devices.pairingCode,
+      companionName: devices.companionName,
       claimedAt: devices.claimedAt,
       confirmedAt: devices.confirmedAt,
     });

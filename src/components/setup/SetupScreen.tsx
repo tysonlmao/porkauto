@@ -17,6 +17,7 @@ type StoredDevice = {
   token: string;
   apiKey?: string;
   name?: string;
+  companionName?: string;
   paired?: boolean;
 };
 
@@ -30,7 +31,8 @@ export function SetupScreen() {
   const [phase, setPhase] = useState<SetupPhase>("registering");
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [device, setDevice] = useState<StoredDevice | null>(null);
-  const [deviceName, setDeviceName] = useState("Porkauto Display");
+  const [displayName, setDisplayName] = useState("Porkauto Display");
+  const [companionName, setCompanionName] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -58,7 +60,8 @@ export function SetupScreen() {
         };
         setPairingCode(result.pairingCode);
         setDevice(stored);
-        setDeviceName(result.device.name);
+        setDisplayName(result.device.name);
+        setCompanionName(null);
         try {
           localStorage.setItem("porkauto.device", JSON.stringify(stored));
         } catch {
@@ -110,7 +113,8 @@ export function SetupScreen() {
       try {
         const status = await fetchDeviceConfig(device!.deviceId, credential);
         if (cancelled) return;
-        if (status.name) setDeviceName(status.name);
+        if (status.name) setDisplayName(status.name);
+        if (status.companionName) setCompanionName(status.companionName);
 
         if (
           (status.pairingStatus === "pending" || status.pairingStatus === "confirmed") &&
@@ -122,6 +126,7 @@ export function SetupScreen() {
               ? {
                   ...prev,
                   name: status.name || prev.name,
+                  companionName: status.companionName || prev.companionName,
                   paired: status.pairingStatus === "confirmed",
                 }
               : prev,
@@ -154,11 +159,18 @@ export function SetupScreen() {
     setError(null);
     try {
       const status = await confirmDevicePairing(device.deviceId, credential);
-      const name = status.name || device.name || "Porkauto Display";
-      setDeviceName(name);
+      const name = status.name || device.name || displayName;
+      const pairedTo =
+        status.companionName ||
+        device.companionName ||
+        companionName ||
+        null;
+      setDisplayName(name);
+      if (pairedTo) setCompanionName(pairedTo);
       completeSetup({
         ...device,
         name,
+        companionName: pairedTo ?? undefined,
         paired: true,
       });
     } catch (err) {
@@ -197,6 +209,7 @@ export function SetupScreen() {
   const isLinked = phase === "linked";
   const isWaiting = phase === "waiting";
   const isRegistering = phase === "registering";
+  const pairedLabel = companionName?.trim() || "companion phone";
 
   return (
     <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-black px-8 text-center">
@@ -214,7 +227,7 @@ export function SetupScreen() {
         </h1>
         <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-zinc-500">
           {isLinked
-            ? `Confirm pairing for ${deviceName}.`
+            ? `Confirm pairing with ${pairedLabel}.`
             : "Scan the QR with the companion app, or enter the code below."}
         </p>
 
@@ -281,7 +294,9 @@ export function SetupScreen() {
             </p>
           ) : isLinked ? (
             <p className="max-w-sm text-sm leading-relaxed text-zinc-400">
-              Phone is waiting for you to confirm.
+              Paired to{" "}
+              <span className="font-medium text-emerald-300">{pairedLabel}</span>
+              . Confirm on this display to finish.
             </p>
           ) : isWaiting ? (
             <p className="hud-pulse text-xs tracking-wide text-zinc-600">
@@ -304,8 +319,8 @@ export function SetupScreen() {
               confirm pairing
             </p>
             <p className="mt-2 text-[15px] leading-snug text-white">
-              Link companion to{" "}
-              <span className="font-medium text-emerald-300">{deviceName}</span>?
+              Pair with{" "}
+              <span className="font-medium text-emerald-300">{pairedLabel}</span>?
             </p>
             <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button

@@ -39,6 +39,7 @@ async function migrate() {
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS owner_token_hash TEXT;
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
     ALTER TABLE devices ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
+    ALTER TABLE devices ADD COLUMN IF NOT EXISTS companion_name TEXT;
 
     CREATE TABLE IF NOT EXISTS device_integrations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -67,7 +67,10 @@ export type VehicleState = {
   deviceId: string | null;
   deviceToken: string | null;
   deviceApiKey: string | null;
+  /** Registered display name. */
   deviceName: string | null;
+  /** Phone/tablet that claimed this display — shown as “Paired to …”. */
+  companionName: string | null;
   paired: boolean;
   /** From companion device config — used as destination shortcut. */
   homeAddress: string | null;
@@ -92,6 +95,7 @@ export const INDEV_PRESETS: Omit<
   | "deviceToken"
   | "deviceApiKey"
   | "deviceName"
+  | "companionName"
   | "paired"
   | "homeAddress"
   | "savedLocations"
