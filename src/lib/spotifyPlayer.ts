@@ -54,6 +54,8 @@ export type SpotifyPlayerHandle = {
   activateAudio: () => Promise<void>;
   spotifyDeviceId: () => string | null;
   previous: () => Promise<void>;
+  pause: () => Promise<void>;
+  resume: () => Promise<void>;
   togglePlay: () => Promise<void>;
   next: () => Promise<void>;
 };
@@ -151,6 +153,25 @@ export async function fetchSpotifyNowPlaying(
   };
 }
 
+export type SpotifyQueueItem = {
+  title: string;
+  artist: string;
+  albumArtUrl: string | null;
+};
+
+export async function fetchSpotifyQueue(
+  deviceId: string,
+  credential: string,
+): Promise<SpotifyQueueItem[]> {
+  const res = await fetch(
+    `${apiBase()}/devices/${deviceId}/integrations/spotify/queue`,
+    { headers: { Authorization: `Bearer ${credential}` } },
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { queue?: SpotifyQueueItem[] };
+  return data.queue ?? [];
+}
+
 async function transferToDevice(
   deviceId: string,
   credential: string,
@@ -200,12 +221,79 @@ export async function sendSpotifyControl(
       body: JSON.stringify({ action, currentlyPlaying }),
     },
   );
-  if (!res.ok && res.status !== 404) {
+  if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
       error?: string;
     } | null;
     throw new Error(body?.error ?? `Spotify control failed (${res.status})`);
   }
+}
+
+export type SpotifyPlaylistSummary = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  trackCount: number;
+  uri: string;
+};
+
+export async function fetchSpotifyPlaylists(
+  deviceId: string,
+  credential: string,
+): Promise<SpotifyPlaylistSummary[]> {
+  const res = await fetch(
+    `${apiBase()}/devices/${deviceId}/integrations/spotify/playlists`,
+    { headers: { Authorization: `Bearer ${credential}` } },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Spotify playlists failed (${res.status})`);
+  }
+  const data = (await res.json()) as { playlists?: SpotifyPlaylistSummary[] };
+  return data.playlists ?? [];
+}
+
+export async function playSpotifyContext(
+  deviceId: string,
+  credential: string,
+  contextUri: string,
+  spotifyDeviceId?: string | null,
+): Promise<void> {
+  const res = await fetch(
+    `${apiBase()}/devices/${deviceId}/integrations/spotify/play`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${credential}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contextUri,
+        ...(spotifyDeviceId ? { spotifyDeviceId } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(body?.error ?? `Spotify play failed (${res.status})`);
+  }
+}
+
+/** Active SDK handle for transport when Porkauto is the Connect device. */
+let activePlayerHandle: SpotifyPlayerHandle | null = null;
+
+export function getActiveSpotifyPlayer(): SpotifyPlayerHandle | null {
+  return activePlayerHandle;
+}
+
+export function setActiveSpotifyPlayer(
+  handle: SpotifyPlayerHandle | null,
+): void {
+  activePlayerHandle = handle;
 }
 
 function trackFromState(state: SpotifyPlaybackState): MusicTrack | null {
@@ -270,15 +358,18 @@ export async function startSpotifyPlayer(options: {
     volume: 0.8,
   });
 
-  const activateAudio = async () => {
+  const activateAudio = async (opts?: { resumeIfPaused?: boolean }) => {
     try {
       await player.activateElement();
       audioActivated = true;
       options.onNeedsGesture?.(false);
-      // If Connect already transferred but stayed paused, resume now.
-      const state = await player.getCurrentState();
-      if (state?.paused) {
-        await player.resume();
+      // Only auto-resume for gesture unlock / transfer recovery — never from
+      // transport controls, or pause→play would resume then togglePlay pause again.
+      if (opts?.resumeIfPaused) {
+        const state = await player.getCurrentState();
+        if (state?.paused) {
+          await player.resume();
+        }
       }
     } catch (err) {
       console.warn(
@@ -290,7 +381,7 @@ export async function startSpotifyPlayer(options: {
 
   const onUserGesture = () => {
     if (disposed || audioActivated) return;
-    void activateAudio();
+    void activateAudio({ resumeIfPaused: true });
   };
 
   // Capture a user gesture early so transfer from the Spotify app can play audio.
@@ -400,14 +491,27 @@ export async function startSpotifyPlayer(options: {
 
   return {
     spotifyDeviceId: () => spotifyDeviceId,
-    activateAudio,
+    activateAudio: () => activateAudio(),
     previous: async () => {
       await activateAudio();
       await player.previousTrack();
     },
+    pause: async () => {
+      await activateAudio();
+      await player.pause();
+    },
+    resume: async () => {
+      await activateAudio();
+      await player.resume();
+    },
     togglePlay: async () => {
       await activateAudio();
-      await player.togglePlay();
+      const state = await player.getCurrentState();
+      if (state?.paused) {
+        await player.resume();
+      } else {
+        await player.pause();
+      }
     },
     next: async () => {
       await activateAudio();

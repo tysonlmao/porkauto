@@ -175,8 +175,16 @@
     animation: hud-pulse 2.4s ease-in-out infinite;
   }
 
-  .hud-breathe {
-    animation: hud-breathe 2.8s ease-in-out infinite;
+  .music-track-swap {
+    animation: music-track-swap 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .music-art-swap {
+    animation: music-art-swap 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .music-upnext-swap {
+    animation: music-upnext-swap 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 }
 
@@ -191,6 +199,41 @@
   }
 }
 
+@keyframes music-track-swap {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes music-art-swap {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes music-upnext-swap {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes hud-pulse {
   0%,
   100% {
@@ -198,17 +241,5 @@
   }
   50% {
     opacity: 1;
-  }
-}
-
-@keyframes hud-breathe {
-  0%,
-  100% {
-    opacity: 0.72;
-    letter-spacing: -0.02em;
-  }
-  50% {
-    opacity: 1;
-    letter-spacing: 0.01em;
   }
 }

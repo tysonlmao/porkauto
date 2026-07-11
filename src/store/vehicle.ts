@@ -1,13 +1,13 @@
 import { create } from "zustand";
 import {
   DEFAULT_POSITION,
-  INDEV_PRESETS,
   type ActiveRoute,
   type AppMode,
   type ConnectionStatus,
   type Destination,
   type Gear,
   type MusicTrack,
+  type MusicQueueItem,
   type NavStatus,
   type SavedLocation,
   type VehiclePosition,
@@ -25,6 +25,7 @@ import {
   LocationError,
   type LocationSource,
 } from "@/lib/geolocation";
+import { normalizeHeading, shortestAngleDelta } from "@/lib/deviceMotion";
 import { readConnectionStatus } from "@/lib/networkConnection";
 
 const SETUP_KEY = "porkauto.setupComplete";
@@ -65,7 +66,6 @@ function loadDevice(): StoredDevice | null {
 }
 
 type VehicleActions = {
-  cycleIndev: () => void;
   setMode: (mode: AppMode) => void;
   setGear: (gear: Gear) => void;
   setSpeed: (speedKmh: number) => void;
@@ -81,6 +81,7 @@ type VehicleActions = {
   ) => void;
   setConnection: (connection: ConnectionStatus) => void;
   setMusic: (music: MusicTrack | null) => void;
+  setMusicQueue: (queue: MusicQueueItem[]) => void;
   setSpotifyNeedsGesture: (needed: boolean) => void;
   setNav: (nav: NavStatus | null) => void;
   setPosition: (position: Partial<VehiclePosition>) => void;
@@ -88,6 +89,8 @@ type VehicleActions = {
     heading: number,
     source: Exclude<HeadingSource, null>,
   ) => void;
+  /** Blend mount/seating bias using GPS course while moving. */
+  calibrateHeadingFromGpsCourse: (courseDeg: number, speedKmh: number) => void;
   setLocationStatus: (
     status: Partial<{
       locating: boolean;
@@ -120,7 +123,6 @@ type VehicleActions = {
 
 type VehicleStore = VehicleState &
   VehicleActions & {
-    indevIndex: number;
     navBusy: boolean;
     navError: string | null;
     /** Active turn-by-turn follow (birds-eye camera). */
@@ -132,12 +134,20 @@ type VehicleStore = VehicleState &
     obdConnected: boolean;
     speedSource: SpeedSource;
     headingSource: HeadingSource;
+    /** Degrees added to raw IMU heading (auto-calibrated from GPS course). */
+    headingOffset: number;
+    /** Last raw IMU heading before offset (for calibration). */
+    lastImuRaw: number | null;
   motionAvailable: boolean;
   motionError: string | null;
   motionNeedsGesture: boolean;
   enableMotionSensors: (() => Promise<boolean>) | null;
   /** Browser blocked Spotify Web Playback autoplay until a user tap. */
   spotifyNeedsGesture: boolean;
+  /** Wall-clock ms when `music` was last written — for progress extrapolation. */
+  musicUpdatedAt: number | null;
+  /** Next few tracks from Spotify queue. */
+  musicQueue: MusicQueueItem[];
 };
 
 const stored = loadDevice();
@@ -169,7 +179,7 @@ async function buildRouteTo(
 }
 
 export const useVehicleStore = create<VehicleStore>((set, get) => ({
-  mode: "connecting",
+  mode: "park",
   gear: "P",
   speedKmh: 0,
   speedLimitKmh: null,
@@ -189,7 +199,6 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   paired: stored?.paired ?? false,
   homeAddress: null,
   savedLocations: [],
-  indevIndex: 0,
   navBusy: false,
   navError: null,
   navigating: false,
@@ -200,27 +209,32 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   obdConnected: false,
   speedSource: null,
   headingSource: null,
+  headingOffset: 0,
+  lastImuRaw: null,
   motionAvailable: false,
   motionError: null,
   motionNeedsGesture: false,
   enableMotionSensors: null,
   spotifyNeedsGesture: false,
-
-  cycleIndev: () => {
-    const next = (get().indevIndex + 1) % INDEV_PRESETS.length;
-    const preset = INDEV_PRESETS[next];
-    if (!preset) return;
-    const { connection: _ignored, ...rest } = preset;
-    set({
-      indevIndex: next,
-      ...rest,
-      // Connection comes from the live network hook, not indev presets.
-      connection: get().connection,
-    });
-  },
+  musicUpdatedAt: null,
+  musicQueue: [],
 
   setMode: (mode) => set({ mode }),
-  setGear: (gear) => set({ gear }),
+  setGear: (gear) => {
+    if (gear === "P") {
+      set({
+        gear,
+        mode: "park",
+        speedKmh: 0,
+        navigating: false,
+      });
+      return;
+    }
+    set({
+      gear,
+      mode: "drive",
+    });
+  },
   setSpeed: (speedKmh) => set({ speedKmh, speedSource: "indev" }),
   setSpeedLimit: (speedLimitKmh) => set({ speedLimitKmh }),
   setObdConnected: (connected) => set({ obdConnected: connected }),
@@ -246,7 +260,13 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     }),
 
   setConnection: (connection) => set({ connection }),
-  setMusic: (music) => set({ music }),
+  setMusic: (music) =>
+    set({
+      music,
+      musicUpdatedAt: music ? Date.now() : null,
+      ...(music ? {} : { musicQueue: [] }),
+    }),
+  setMusicQueue: (musicQueue) => set({ musicQueue }),
   setSpotifyNeedsGesture: (needed) => set({ spotifyNeedsGesture: needed }),
   setNav: (nav) => set({ nav }),
 
@@ -266,9 +286,36 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     ) {
       return;
     }
+    if (source === "imu") {
+      const calibrated = normalizeHeading(heading + state.headingOffset);
+      set({
+        position: { ...state.position, heading: calibrated },
+        headingSource: "imu",
+        lastImuRaw: heading,
+      });
+      return;
+    }
     set({
-      position: { ...state.position, heading },
+      position: { ...state.position, heading: normalizeHeading(heading) },
       headingSource: source,
+    });
+  },
+
+  calibrateHeadingFromGpsCourse: (courseDeg, speedKmh) => {
+    const state = get();
+    if (state.obdConnected) return;
+    if (state.headingSource !== "imu") return;
+    if (state.lastImuRaw == null) return;
+    if (!(speedKmh >= 8)) return;
+
+    // Desired offset makes (imuRaw + offset) ≈ GPS course-over-ground.
+    const desiredOffset = normalizeHeading(courseDeg - state.lastImuRaw);
+    const err = shortestAngleDelta(state.headingOffset, desiredOffset);
+    const nextOffset = normalizeHeading(state.headingOffset + err * 0.08);
+    const calibrated = normalizeHeading(state.lastImuRaw + nextOffset);
+    set({
+      headingOffset: nextOffset,
+      position: { ...state.position, heading: calibrated },
     });
   },
 
@@ -500,13 +547,15 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       paired: false,
       homeAddress: null,
       savedLocations: [],
-      mode: "connecting",
+      mode: "park",
       gear: "P",
       speedKmh: 0,
       speedLimitKmh: null,
       connection: { type: "offline" },
-      music: null,
-      nav: null,
+  music: null,
+  musicUpdatedAt: null,
+  musicQueue: [],
+  nav: null,
       position: DEFAULT_POSITION,
       destination: null,
       route: null,
@@ -520,10 +569,11 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       obdConnected: false,
       speedSource: null,
       headingSource: null,
+      headingOffset: 0,
+      lastImuRaw: null,
       motionAvailable: false,
       motionError: null,
       motionNeedsGesture: false,
-      indevIndex: 0,
     });
   },
 

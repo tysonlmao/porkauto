@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import {
   fetchSpotifyLinkStatus,
   fetchSpotifyNowPlaying,
+  fetchSpotifyQueue,
+  setActiveSpotifyPlayer,
   startSpotifyPlayer,
   type SpotifyPlayerHandle,
 } from "@/lib/spotifyPlayer";
@@ -9,15 +11,24 @@ import { useVehicleStore } from "@/store/vehicle";
 
 const LINK_POLL_MS = 4000;
 const NOW_PLAYING_POLL_MS = 3000;
+const QUEUE_POLL_MS = 8_000;
+
+/** Imperative refresh used after transport controls. */
+let refreshNowPlayingFn: (() => Promise<void>) | null = null;
+
+export async function refreshSpotifyNowPlaying(): Promise<void> {
+  await refreshNowPlayingFn?.();
+}
 
 /**
  * When setup is complete and Spotify is linked:
  * - Register Web Playback SDK as Connect device "Porkauto"
  * - Transfer playback onto this device when ready
- * - Poll account now-playing into the HUD music widget
+ * - Poll account now-playing + short queue into the HUD
  */
 export function useSpotifyPlayer(enabled: boolean) {
   const setMusic = useVehicleStore((s) => s.setMusic);
+  const setMusicQueue = useVehicleStore((s) => s.setMusicQueue);
   const setSpotifyNeedsGesture = useVehicleStore(
     (s) => s.setSpotifyNeedsGesture,
   );
@@ -37,8 +48,22 @@ export function useSpotifyPlayer(enabled: boolean) {
     let cancelled = false;
     let linkTimer: ReturnType<typeof setInterval> | null = null;
     let nowPlayingTimer: ReturnType<typeof setInterval> | null = null;
+    let queueTimer: ReturnType<typeof setInterval> | null = null;
     let playerHandle: SpotifyPlayerHandle | null = null;
     let linked = false;
+
+    async function pollQueue() {
+      if (cancelled || !linked) return;
+      try {
+        const queue = await fetchSpotifyQueue(deviceId!, credential!);
+        if (!cancelled) setMusicQueue(queue);
+      } catch (err) {
+        console.warn(
+          "[spotify] queue poll failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     async function pollNowPlaying() {
       if (cancelled || !linked) return;
@@ -57,6 +82,11 @@ export function useSpotifyPlayer(enabled: boolean) {
       }
     }
 
+    refreshNowPlayingFn = async () => {
+      sdkTrackRef.current = false;
+      await Promise.all([pollNowPlaying(), pollQueue()]);
+    };
+
     async function startWhenLinked() {
       if (cancelled || linked) return;
       linked = true;
@@ -69,6 +99,7 @@ export function useSpotifyPlayer(enabled: boolean) {
             if (cancelled || !track) return;
             sdkTrackRef.current = true;
             setMusic(track);
+            void pollQueue();
           },
           onNeedsGesture: (needed) => {
             if (!cancelled) setSpotifyNeedsGesture(needed);
@@ -82,6 +113,7 @@ export function useSpotifyPlayer(enabled: boolean) {
           return;
         }
         handleRef.current = playerHandle;
+        setActiveSpotifyPlayer(playerHandle);
       } catch (err) {
         console.warn(
           "[spotify] player start failed:",
@@ -89,10 +121,13 @@ export function useSpotifyPlayer(enabled: boolean) {
         );
       }
 
-      await pollNowPlaying();
+      await Promise.all([pollNowPlaying(), pollQueue()]);
       nowPlayingTimer = setInterval(() => {
         void pollNowPlaying();
       }, NOW_PLAYING_POLL_MS);
+      queueTimer = setInterval(() => {
+        void pollQueue();
+      }, QUEUE_POLL_MS);
     }
 
     async function checkLink() {
@@ -115,11 +150,15 @@ export function useSpotifyPlayer(enabled: boolean) {
 
     return () => {
       cancelled = true;
+      refreshNowPlayingFn = null;
       if (linkTimer) clearInterval(linkTimer);
       if (nowPlayingTimer) clearInterval(nowPlayingTimer);
+      if (queueTimer) clearInterval(queueTimer);
       playerHandle?.disconnect();
       handleRef.current = null;
+      setActiveSpotifyPlayer(null);
       setMusic(null);
+      setMusicQueue([]);
       setSpotifyNeedsGesture(false);
     };
   }, [
@@ -128,6 +167,7 @@ export function useSpotifyPlayer(enabled: boolean) {
     deviceApiKey,
     deviceToken,
     setMusic,
+    setMusicQueue,
     setSpotifyNeedsGesture,
   ]);
 }

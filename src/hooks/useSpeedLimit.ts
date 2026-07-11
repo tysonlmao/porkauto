@@ -1,18 +1,23 @@
 import { useEffect, useRef } from "react";
-import { haversineM } from "@/lib/navigationCamera";
+import { findNextTurn, haversineM } from "@/lib/navigationCamera";
 import { fetchSpeedLimit } from "@/lib/speedLimit";
 import { useVehicleStore } from "@/store/vehicle";
 
 const MOVE_THRESHOLD_M = 40;
 const POLL_MS = 12_000;
+const STALE_CLEAR_MS = 90_000;
+const TURN_NEAR_M = 80;
+const HEADING_DELTA_FORCE = 35;
 
 /**
  * Poll OSM maxspeed near the vehicle when GPS is active.
- * Updates speedLimitKmh; clears when GPS is lost.
+ * Clears limit after ~90 s without a successful fetch, or when GPS is lost.
  */
 export function useSpeedLimit(enabled: boolean) {
   const lastFetchAt = useRef(0);
+  const lastSuccessAt = useRef(0);
   const lastFetchPos = useRef<{ lat: number; lng: number } | null>(null);
+  const lastHeading = useRef<number | null>(null);
   const inFlight = useRef(false);
 
   useEffect(() => {
@@ -24,29 +29,58 @@ export function useSpeedLimit(enabled: boolean) {
         if (state.speedLimitKmh != null && state.speedSource !== "indev") {
           state.setSpeedLimit(null);
         }
+        lastSuccessAt.current = 0;
         return;
       }
 
-      const { lat, lng } = state.position;
+      // Expire stale limits when Overpass has been unreachable.
+      if (
+        state.speedLimitKmh != null &&
+        state.speedSource !== "indev" &&
+        lastSuccessAt.current > 0 &&
+        performance.now() - lastSuccessAt.current >= STALE_CLEAR_MS
+      ) {
+        state.setSpeedLimit(null);
+      }
+
+      const { lat, lng, heading } = state.position;
       const prev = lastFetchPos.current;
       const moved =
         !prev || haversineM(prev, { lat, lng }) >= MOVE_THRESHOLD_M;
       const stale = performance.now() - lastFetchAt.current >= POLL_MS;
 
-      if (!force && !moved && !stale) return;
+      const headingDelta =
+        lastHeading.current == null
+          ? 0
+          : Math.abs(
+              ((heading - lastHeading.current + 540) % 360) - 180,
+            );
+      const nearTurn =
+        state.navigating &&
+        state.route?.coordinates?.length &&
+        (findNextTurn({ lat, lng }, state.route.coordinates)?.distanceM ??
+          Infinity) < TURN_NEAR_M;
+
+      const shouldForce =
+        force ||
+        nearTurn ||
+        headingDelta >= HEADING_DELTA_FORCE;
+
+      if (!shouldForce && !moved && !stale) return;
       if (inFlight.current) return;
 
       inFlight.current = true;
       try {
-        const limit = await fetchSpeedLimit(lat, lng);
+        const result = await fetchSpeedLimit(lat, lng);
         const current = useVehicleStore.getState();
-        // Don't clobber indev presets while cycling demos.
         if (current.speedSource === "indev") return;
-        current.setSpeedLimit(limit);
+        current.setSpeedLimit(result.speedLimitKmh);
         lastFetchAt.current = performance.now();
+        lastSuccessAt.current = performance.now();
         lastFetchPos.current = { lat, lng };
+        lastHeading.current = heading;
       } catch {
-        // Keep last known limit on transient Overpass failures.
+        // Keep last known until STALE_CLEAR_MS elapses.
       } finally {
         inFlight.current = false;
       }
@@ -58,7 +92,9 @@ export function useSpeedLimit(enabled: boolean) {
       if (
         state.position.lat !== prev.position.lat ||
         state.position.lng !== prev.position.lng ||
-        state.locationSource !== prev.locationSource
+        state.position.heading !== prev.position.heading ||
+        state.locationSource !== prev.locationSource ||
+        state.navigating !== prev.navigating
       ) {
         void refresh(false);
       }
@@ -66,7 +102,7 @@ export function useSpeedLimit(enabled: boolean) {
 
     const interval = window.setInterval(() => {
       void refresh(false);
-    }, POLL_MS);
+    }, Math.min(POLL_MS, 5_000));
 
     return () => {
       unsub();

@@ -8,6 +8,9 @@ export const SPOTIFY_SCOPES = [
   "user-read-playback-state",
   "user-modify-playback-state",
   "user-read-currently-playing",
+  "user-read-recently-played",
+  "playlist-read-private",
+  "playlist-read-collaborative",
 ].join(" ");
 
 export type SpotifyTokenResponse = {
@@ -181,6 +184,52 @@ export async function fetchPlaybackState(
   return JSON.parse(text) as SpotifyPlaybackState;
 }
 
+export type SpotifyQueueTrack = {
+  title: string;
+  artist: string;
+  albumArtUrl: string | null;
+};
+
+/** Next tracks in the player queue (Premium). */
+export async function fetchPlaybackQueue(
+  accessToken: string,
+  limit = 3,
+): Promise<SpotifyQueueTrack[]> {
+  const { status, text } = await spotifyFetch(
+    `${SPOTIFY_API}/me/player/queue`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (status === 204 || !text.trim()) return [];
+  if (status === 403 || status === 404) return [];
+  if (status < 200 || status >= 300) {
+    throw new Error(`Spotify queue failed (${status}): ${text}`);
+  }
+
+  const data = JSON.parse(text) as {
+    queue?: Array<{
+      name?: string;
+      artists?: Array<{ name: string }>;
+      album?: { images?: Array<{ url: string; width?: number }> };
+    } | null>;
+  };
+
+  return (data.queue ?? [])
+    .filter((t): t is NonNullable<typeof t> => Boolean(t?.name))
+    .slice(0, Math.max(0, limit))
+    .map((t) => {
+      const images = t.album?.images ?? [];
+      const art =
+        [...images].sort((a, b) => (a.width ?? 0) - (b.width ?? 0))[0]?.url ??
+        images[0]?.url ??
+        null;
+      return {
+        title: t.name ?? "Unknown",
+        artist: (t.artists ?? []).map((a) => a.name).join(", ") || "Unknown",
+        albumArtUrl: art,
+      };
+    });
+}
+
 /** Move Connect playback onto a Web Playback SDK device. */
 export async function transferPlayback(
   accessToken: string,
@@ -241,10 +290,141 @@ export async function controlPlayback(
     method,
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  // 204 success; 404 = no active device
-  if (status === 204 || status === 404) return;
+  if (status === 204) return;
+  if (status === 404) {
+    throw new Error("No active Spotify device — open Spotify or transfer playback");
+  }
   if (status < 200 || status >= 300) {
     throw new Error(`Spotify ${resolved} failed (${status}): ${text}`);
+  }
+}
+
+export type SpotifyPlaylistSummary = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  trackCount: number;
+  uri: string;
+};
+
+/** Map playlist URI → most recent play timestamp (ms). Best-effort via recently-played. */
+async function fetchPlaylistLastPlayedAt(
+  accessToken: string,
+): Promise<Map<string, number>> {
+  const lastPlayed = new Map<string, number>();
+  try {
+    const { status, text } = await spotifyFetch(
+      `${SPOTIFY_API}/me/player/recently-played?limit=50`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (status < 200 || status >= 300) return lastPlayed;
+
+    const data = JSON.parse(text) as {
+      items?: Array<{
+        played_at?: string;
+        context?: { type?: string; uri?: string } | null;
+      }>;
+    };
+
+    for (const item of data.items ?? []) {
+      const uri = item.context?.uri;
+      if (!uri?.startsWith("spotify:playlist:")) continue;
+      const playedAt = item.played_at ? Date.parse(item.played_at) : NaN;
+      if (!Number.isFinite(playedAt)) continue;
+      const prev = lastPlayed.get(uri);
+      if (prev == null || playedAt > prev) {
+        lastPlayed.set(uri, playedAt);
+      }
+    }
+  } catch {
+    // Sorting is best-effort; fall back to Spotify's default order.
+  }
+  return lastPlayed;
+}
+
+export async function fetchUserPlaylists(
+  accessToken: string,
+  limit = 30,
+): Promise<SpotifyPlaylistSummary[]> {
+  const [{ status, text }, lastPlayed] = await Promise.all([
+    spotifyFetch(
+      `${SPOTIFY_API}/me/playlists?limit=${Math.min(50, Math.max(1, limit))}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    ),
+    fetchPlaylistLastPlayedAt(accessToken),
+  ]);
+
+  if (status < 200 || status >= 300) {
+    throw new Error(`Spotify playlists failed (${status}): ${text}`);
+  }
+  const data = JSON.parse(text) as {
+    items?: Array<{
+      id: string;
+      name: string;
+      uri: string;
+      images?: Array<{ url: string }>;
+      tracks?: { total?: number };
+    } | null>;
+  };
+
+  const playlists = (data.items ?? [])
+    .filter((item): item is NonNullable<typeof item> =>
+      Boolean(item?.id && item?.uri),
+    )
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      uri: item.uri,
+      imageUrl: item.images?.[0]?.url ?? null,
+      trackCount: item.tracks?.total ?? 0,
+    }));
+
+  return playlists.sort((a, b) => {
+    const aAt = lastPlayed.get(a.uri) ?? 0;
+    const bAt = lastPlayed.get(b.uri) ?? 0;
+    if (aAt !== bAt) return bAt - aAt;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** Start playback of a playlist/album/context on the active (or specified) device. */
+export async function playContextUri(
+  accessToken: string,
+  contextUri: string,
+  spotifyDeviceId?: string,
+): Promise<void> {
+  const url = new URL(`${SPOTIFY_API}/me/player/play`);
+  if (spotifyDeviceId) {
+    url.searchParams.set("device_id", spotifyDeviceId);
+  }
+
+  const { status, text } = await spotifyFetch(url.toString(), {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ context_uri: contextUri }),
+  });
+  if (status === 204 || status === 202) return;
+  if (status === 404) {
+    throw new Error(
+      "No active Spotify device — open Spotify or tap to enable audio on this display",
+    );
+  }
+  if (status === 403) {
+    throw new Error(
+      text.includes("Restriction") || text.includes("premium")
+        ? "Spotify Premium is required to play this playlist"
+        : `Spotify denied playback (${text || "forbidden"})`,
+    );
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(
+      text?.trim()
+        ? `Spotify play failed (${status}): ${text.slice(0, 200)}`
+        : `Spotify play failed (${status})`,
+    );
   }
 }
 

@@ -4,7 +4,6 @@ import {
   X,
   Navigation,
   Loader2,
-  LocateFixed,
   Square,
   Play,
   Home,
@@ -12,7 +11,6 @@ import {
 } from "lucide-react";
 import { useVehicleStore } from "@/store/vehicle";
 import type { Destination, SavedLocation } from "@/store/types";
-import { promptDeviceAccessFromUserGesture } from "@/lib/promptDeviceAccess";
 import { cn } from "@/lib/utils";
 import { MediaControls } from "@/components/hud/MediaControls";
 import { OnscreenTextField } from "@/components/keyboard/OnscreenTextField";
@@ -23,15 +21,11 @@ type DestinationSearchProps = {
 };
 
 export function DestinationSearch({ className }: DestinationSearchProps) {
-  const mode = useVehicleStore((s) => s.mode);
   const destination = useVehicleStore((s) => s.destination);
   const route = useVehicleStore((s) => s.route);
   const navigating = useVehicleStore((s) => s.navigating);
   const navBusy = useVehicleStore((s) => s.navBusy);
   const navError = useVehicleStore((s) => s.navError);
-  const locating = useVehicleStore((s) => s.locating);
-  const usingGps = useVehicleStore((s) => s.usingGps);
-  const motionAvailable = useVehicleStore((s) => s.motionAvailable);
   const homeAddress = useVehicleStore((s) => s.homeAddress);
   const savedLocations = useVehicleStore((s) => s.savedLocations);
   const searchDestinations = useVehicleStore((s) => s.searchDestinations);
@@ -46,7 +40,6 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
   const [results, setResults] = useState<Destination[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [requesting, setRequesting] = useState(false);
   const [pickingBusy, setPickingBusy] = useState(false);
 
   const q = query.trim();
@@ -86,8 +79,6 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
 
     return () => window.clearTimeout(handle);
   }, [q, open, searchingMode, searchDestinations, closeKeyboard]);
-
-  if (mode === "connecting") return null;
 
   async function choose(dest: Destination) {
     closeKeyboard();
@@ -132,14 +123,6 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
     } finally {
       setPickingBusy(false);
     }
-  }
-
-  function handleEnableAccess(event: React.MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    setRequesting(true);
-    void promptDeviceAccessFromUserGesture().finally(() => {
-      setRequesting(false);
-    });
   }
 
   function closeSearch() {
@@ -260,56 +243,44 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
         </div>
       ) : null}
 
-      <div className="flex flex-col items-end gap-2">
-        <MediaControls />
+      <div className="flex w-[calc(2.75rem*4+0.5rem*3)] flex-col gap-2">
+        <MediaControls className="w-full justify-between" />
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleEnableAccess}
-            disabled={locating || requesting}
-            title="Allow / refresh location & motion"
-            className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-full border backdrop-blur transition",
-              usingGps || motionAvailable
-                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-400"
-                : "border-amber-400/40 bg-amber-400/10 text-amber-300 hover:border-amber-300/60",
-              (locating || requesting) && "opacity-60",
-            )}
-            aria-label="Allow location and motion"
-          >
-            {locating || requesting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <LocateFixed className="h-4 w-4" />
-            )}
-          </button>
-
+        <div className="flex flex-col gap-2">
           {navigating ? (
             <button
               type="button"
               onClick={stopNavigation}
-              className="flex items-center gap-2 rounded-full border border-red-400/40 bg-red-500/15 px-4 py-2.5 text-sm font-medium text-red-200 backdrop-blur transition hover:bg-red-500/25"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-full border border-red-400/40 bg-red-500/15 px-4 text-sm font-medium text-red-200 backdrop-blur transition hover:bg-red-500/25"
             >
               <Square className="h-3.5 w-3.5 fill-current" />
               Stop
             </button>
           ) : canStart ? (
-            <button
-              type="button"
-              onClick={startNavigation}
-              className="flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/15 px-4 py-2.5 text-sm font-medium text-emerald-200 backdrop-blur transition hover:bg-emerald-400/25"
-            >
-              <Play className="h-3.5 w-3.5 fill-current" />
-              Start navigation
-            </button>
-          ) : null}
-
-          {destination && !navigating ? (
+            <div className="flex w-full items-center gap-2">
+              <button
+                type="button"
+                onClick={startNavigation}
+                className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/15 px-4 text-sm font-medium text-emerald-200 backdrop-blur transition hover:bg-emerald-400/25"
+              >
+                <Play className="h-3.5 w-3.5 fill-current" />
+                Start navigation
+              </button>
+              {destination ? (
+                <button
+                  type="button"
+                  onClick={clearDestination}
+                  className="h-11 shrink-0 rounded-full border border-white/10 bg-black/70 px-3 text-[11px] uppercase tracking-[0.12em] text-zinc-400 backdrop-blur transition hover:border-white/25 hover:text-white"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          ) : destination ? (
             <button
               type="button"
               onClick={clearDestination}
-              className="rounded-full border border-white/10 bg-black/70 px-3 py-2.5 text-[11px] uppercase tracking-[0.12em] text-zinc-400 backdrop-blur transition hover:border-white/25 hover:text-white"
+              className="h-11 w-full rounded-full border border-white/10 bg-black/70 px-3 text-[11px] uppercase tracking-[0.12em] text-zinc-400 backdrop-blur transition hover:border-white/25 hover:text-white"
             >
               Clear
             </button>
@@ -319,7 +290,7 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className="flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-medium text-white backdrop-blur transition hover:bg-white/15"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 text-sm font-medium text-white backdrop-blur transition hover:bg-white/15"
             >
               <Navigation className="h-4 w-4 text-emerald-400" />
               {destination ? "Change destination" : "Add destination"}

@@ -1,5 +1,5 @@
 /**
- * Dev HUD controls (indev cycle, reset setup) and “Skip setup (dev)”.
+ * Dev HUD controls (PRND swipe, reset setup) and “Skip setup (dev)”.
  * Set `VITE_DEV_TOOLS=true` (or `1`) in `.env` to enable.
  */
 export function devToolsEnabled(): boolean {

@@ -1,4 +1,4 @@
-export type AppMode = "connecting" | "park" | "drive";
+export type AppMode = "park" | "drive";
 export type Gear = "P" | "R" | "N" | "D";
 export type SignalBars = 0 | 1 | 2 | 3 | 4;
 
@@ -20,6 +20,12 @@ export type MusicTrack = {
   durationMs?: number;
   /** Whether Spotify reports the track as currently playing. */
   isPlaying?: boolean;
+};
+
+export type MusicQueueItem = {
+  title: string;
+  artist: string;
+  albumArtUrl: string | null;
 };
 
 export type NavStatus = {
@@ -96,79 +102,3 @@ export const DEFAULT_POSITION: VehiclePosition = {
   lng: 151.2093,
   heading: 220,
 };
-
-export const INDEV_PRESETS: Omit<
-  VehicleState,
-  | "setupComplete"
-  | "pairingCode"
-  | "deviceId"
-  | "deviceToken"
-  | "deviceApiKey"
-  | "deviceName"
-  | "companionName"
-  | "paired"
-  | "homeAddress"
-  | "savedLocations"
-  | "position"
-  | "destination"
-  | "route"
->[] = [
-  {
-    mode: "connecting",
-    gear: "P",
-    speedKmh: 0,
-    speedLimitKmh: null,
-    connection: { type: "offline" },
-    music: null,
-    nav: null,
-  },
-  {
-    mode: "park",
-    gear: "P",
-    speedKmh: 0,
-    speedLimitKmh: null,
-    connection: { type: "wifi", bars: 3 },
-    music: null,
-    nav: null,
-  },
-  {
-    mode: "drive",
-    gear: "D",
-    speedKmh: 112,
-    speedLimitKmh: 110,
-    connection: { type: "cellular", generation: "5G", bars: 4 },
-    music: {
-      title: "Vanished",
-      artist: "Crystal Castles",
-      albumArtUrl: null,
-      progressMs: 72_000,
-      durationMs: 214_000,
-      isPlaying: true,
-    },
-    nav: {
-      etaTime: "14:24",
-      remainingMinutes: 5,
-      destination: "420 South Road",
-    },
-  },
-  {
-    mode: "drive",
-    gear: "D",
-    speedKmh: 48,
-    speedLimitKmh: 50,
-    connection: { type: "ethernet" },
-    music: {
-      title: "Nightcall",
-      artist: "Kavinsky",
-      albumArtUrl: null,
-      progressMs: 45_000,
-      durationMs: 256_000,
-      isPlaying: true,
-    },
-    nav: {
-      etaTime: "09:12",
-      remainingMinutes: 18,
-      destination: "Home",
-    },
-  },
-];

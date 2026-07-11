@@ -235,6 +235,29 @@ type OverpassElement = {
   center?: { lat: number; lon: number };
 };
 
+/** Lower score = preferred road class for speed-limit matching. */
+const HIGHWAY_RANK: Record<string, number> = {
+  motorway: 0,
+  motorway_link: 1,
+  trunk: 2,
+  trunk_link: 3,
+  primary: 4,
+  primary_link: 5,
+  secondary: 6,
+  secondary_link: 7,
+  tertiary: 8,
+  tertiary_link: 9,
+  unclassified: 10,
+  residential: 11,
+  living_street: 12,
+  service: 13,
+};
+
+function highwayRank(highway: string | undefined): number {
+  if (!highway) return 20;
+  return HIGHWAY_RANK[highway] ?? 15;
+}
+
 function wayDistanceM(
   lat: number,
   lng: number,
@@ -270,12 +293,93 @@ function wayDistanceM(
   return Infinity;
 }
 
+type SpeedLimitCacheEntry = {
+  speedLimitKmh: number | null;
+  fetchedAt: number;
+};
+
+/** ~50 m grid cells; TTL 8 minutes. */
+const SPEED_LIMIT_CACHE = new Map<string, SpeedLimitCacheEntry>();
+const SPEED_LIMIT_CACHE_TTL_MS = 8 * 60_000;
+
+function speedLimitCacheKey(lat: number, lng: number): string {
+  const cell = 0.00045; // ~50 m
+  return `${Math.round(lat / cell)}:${Math.round(lng / cell)}`;
+}
+
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
+
+async function queryOverpass(
+  endpoint: string,
+  query: string,
+): Promise<OverpassElement[]> {
+  const response = await fetch(endpoint, {
+    method: "POST",
+    signal: AbortSignal.timeout(10_000),
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+      "User-Agent": UA,
+    },
+    body: `data=${encodeURIComponent(query)}`,
+  });
+
+  const status = Number(
+    (response as unknown as { status?: number }).status ?? 0,
+  );
+  if (status < 200 || status >= 300) {
+    throw new Error(`Overpass HTTP ${status || "error"}`);
+  }
+
+  const text = await (
+    response as unknown as { text: () => Promise<string> }
+  ).text();
+  const data = JSON.parse(text) as { elements?: OverpassElement[] };
+  return data.elements ?? [];
+}
+
+function pickBestSpeedLimit(
+  lat: number,
+  lng: number,
+  elements: OverpassElement[],
+): number | null {
+  let best: { kmh: number; dist: number; rank: number } | null = null;
+  for (const el of elements) {
+    const raw = el.tags?.maxspeed;
+    if (!raw) continue;
+    const kmh = parseMaxspeed(raw);
+    if (kmh == null || kmh <= 0) continue;
+    const dist = wayDistanceM(lat, lng, el);
+    const rank = highwayRank(el.tags?.highway);
+    if (
+      !best ||
+      dist < best.dist - 8 ||
+      (Math.abs(dist - best.dist) <= 8 && rank < best.rank)
+    ) {
+      best = { kmh, dist, rank };
+    }
+  }
+  return best?.kmh ?? null;
+}
+
 /** Live speed limit near a point via Overpass (OSM maxspeed). */
 geoRoutes.get("/speed-limit", async (c) => {
   const lat = Number(c.req.query("lat"));
   const lng = Number(c.req.query("lng"));
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return c.json({ error: "Invalid coordinates" }, 400);
+  }
+
+  const cacheKey = speedLimitCacheKey(lat, lng);
+  const cached = SPEED_LIMIT_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < SPEED_LIMIT_CACHE_TTL_MS) {
+    return c.json({
+      speedLimitKmh: cached.speedLimitKmh,
+      fetchedAt: cached.fetchedAt,
+    });
   }
 
   const radiusM = 45;
@@ -286,43 +390,25 @@ out geom;
 `.trim();
 
   try {
-    const response = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      signal: AbortSignal.timeout(10_000),
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-        "User-Agent": UA,
-      },
-      body: `data=${encodeURIComponent(query)}`,
-    });
-
-    const status = Number(
-      (response as unknown as { status?: number }).status ?? 0,
-    );
-    if (status < 200 || status >= 300) {
-      throw new Error(`Overpass HTTP ${status || "error"}`);
-    }
-
-    const text = await (
-      response as unknown as { text: () => Promise<string> }
-    ).text();
-    const data = JSON.parse(text) as { elements?: OverpassElement[] };
-    const elements = data.elements ?? [];
-
-    let best: { kmh: number; dist: number } | null = null;
-    for (const el of elements) {
-      const raw = el.tags?.maxspeed;
-      if (!raw) continue;
-      const kmh = parseMaxspeed(raw);
-      if (kmh == null || kmh <= 0) continue;
-      const dist = wayDistanceM(lat, lng, el);
-      if (!best || dist < best.dist) {
-        best = { kmh, dist };
+    let elements: OverpassElement[] | null = null;
+    let lastError: unknown = null;
+    for (const endpoint of OVERPASS_ENDPOINTS) {
+      try {
+        elements = await queryOverpass(endpoint, query);
+        break;
+      } catch (err) {
+        lastError = err;
       }
     }
+    if (!elements) {
+      throw lastError ?? new Error("Overpass unavailable");
+    }
 
-    return c.json({ speedLimitKmh: best?.kmh ?? null });
+    const speedLimitKmh = pickBestSpeedLimit(lat, lng, elements);
+    const fetchedAt = Date.now();
+    SPEED_LIMIT_CACHE.set(cacheKey, { speedLimitKmh, fetchedAt });
+
+    return c.json({ speedLimitKmh, fetchedAt });
   } catch (err) {
     console.error("geo/speed-limit failed", err);
     return c.json({ error: "Speed limit lookup failed" }, 502);

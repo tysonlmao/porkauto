@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import type { MusicTrack } from "@/store/types";
+import { useVehicleStore } from "@/store/vehicle";
 import { cn } from "@/lib/utils";
+import { UpNextCard } from "./UpNextCard";
 
 type MusicWidgetProps = {
   track: MusicTrack;
+  /** Compact = drive HUD; park = larger bottom player. */
+  variant?: "compact" | "park";
   className?: string;
 };
 
@@ -64,13 +68,19 @@ function useLiveProgress(track: MusicTrack): {
   progressMs: number;
   durationMs: number;
 } {
+  const musicUpdatedAt = useVehicleStore((s) => s.musicUpdatedAt);
   const durationMs = track.durationMs ?? 0;
   const baseProgress = track.progressMs ?? 0;
-  const playing = track.isPlaying !== false && durationMs > 0;
+  const playing = track.isPlaying === true && durationMs > 0;
   const [progressMs, setProgressMs] = useState(baseProgress);
 
   useEffect(() => {
-    setProgressMs(baseProgress);
+    const snapshotAt = musicUpdatedAt ?? Date.now();
+    const ageAtMount = Math.max(0, Date.now() - snapshotAt);
+    const startProgress = playing
+      ? Math.min(durationMs, baseProgress + ageAtMount)
+      : baseProgress;
+    setProgressMs(startProgress);
     if (!playing) return;
 
     const startedAt = performance.now();
@@ -78,48 +88,135 @@ function useLiveProgress(track: MusicTrack): {
 
     const tick = () => {
       const elapsed = performance.now() - startedAt;
-      setProgressMs(Math.min(durationMs, baseProgress + elapsed));
+      setProgressMs(Math.min(durationMs, startProgress + elapsed));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [baseProgress, durationMs, playing, track.title, track.artist]);
+  }, [
+    baseProgress,
+    durationMs,
+    playing,
+    musicUpdatedAt,
+    track.title,
+    track.artist,
+  ]);
 
   return { progressMs, durationMs };
 }
 
-export function MusicWidget({ track, className }: MusicWidgetProps) {
+export function MusicWidget({
+  track,
+  variant = "compact",
+  className,
+}: MusicWidgetProps) {
+  const queue = useVehicleStore((s) => s.musicQueue);
   const { progressMs, durationMs } = useLiveProgress(track);
   const ratio =
     durationMs > 0 ? Math.min(1, Math.max(0, progressMs / durationMs)) : 0;
   const showProgress = durationMs > 0;
+  const upNext = queue[0] ?? null;
+  const trackKey = `${track.title}|${track.artist}|${track.albumArtUrl ?? ""}`;
+  const upNextKey = upNext
+    ? `${upNext.title}|${upNext.artist}|${upNext.albumArtUrl ?? ""}`
+    : "";
+  const park = variant === "park";
 
   return (
-    <div className={cn("flex max-w-[18rem] items-center gap-3", className)}>
-      <div className="h-11 w-11 shrink-0 overflow-hidden rounded-[3px] bg-zinc-900 ring-1 ring-white/10">
-        <AlbumArt track={track} />
-      </div>
-      <div className="min-w-0 flex-1 leading-[1.25]">
-        <p className="truncate text-[13px] text-zinc-400">
-          Listening to{" "}
-          <span className="font-semibold text-white">{track.title}</span>
-        </p>
-        <p className="truncate text-[12px] text-zinc-500">{track.artist}</p>
-        {showProgress ? (
-          <div className="mt-1.5">
-            <div className="h-px w-full overflow-hidden bg-white/15">
+    <div
+      className={cn(
+        "flex w-full flex-col",
+        park ? "gap-3" : "max-w-[18rem] gap-2",
+        className,
+      )}
+    >
+      <div
+        key={trackKey}
+        className={cn(
+          "music-track-swap flex w-full items-center",
+          park ? "gap-5" : "gap-3",
+        )}
+      >
+        <div
+          className={cn(
+            "music-art-swap shrink-0 overflow-hidden bg-zinc-900 ring-1 ring-white/10",
+            park
+              ? "h-24 w-24 rounded-md md:h-28 md:w-28"
+              : "h-11 w-11 rounded-[3px]",
+          )}
+        >
+          <AlbumArt track={track} />
+        </div>
+        <div
+          className={cn(
+            "min-w-0 flex-1",
+            park ? "leading-[1.3]" : "leading-[1.25]",
+          )}
+        >
+          <p
+            className={cn(
+              "truncate text-zinc-400",
+              park ? "text-[15px] md:text-base" : "text-[13px]",
+            )}
+          >
+            Listening to{" "}
+            <span
+              className={cn(
+                "font-semibold text-white",
+                park && "text-lg md:text-xl",
+              )}
+            >
+              {track.title}
+            </span>
+          </p>
+          <p
+            className={cn(
+              "truncate text-zinc-500",
+              park ? "mt-0.5 text-sm md:text-[15px]" : "text-[12px]",
+            )}
+          >
+            {track.artist}
+          </p>
+          {showProgress ? (
+            <div className={park ? "mt-3" : "mt-1.5"}>
               <div
-                className="h-full bg-white/80 transition-[width] duration-75 ease-linear"
-                style={{ width: `${ratio * 100}%` }}
-              />
+                className={cn(
+                  "w-full overflow-hidden bg-white/15",
+                  park ? "h-1 rounded-full" : "h-px",
+                )}
+              >
+                <div
+                  className={cn(
+                    "h-full bg-white/80 transition-[width] duration-75 ease-linear",
+                    park && "rounded-full",
+                  )}
+                  style={{ width: `${ratio * 100}%` }}
+                />
+              </div>
+              <div
+                className={cn(
+                  "flex justify-between tabular-nums tracking-wide text-zinc-500",
+                  park
+                    ? "mt-1.5 text-xs md:text-[13px]"
+                    : "mt-1 text-[10px]",
+                )}
+              >
+                <span>{formatMs(progressMs)}</span>
+                <span>{formatMs(durationMs)}</span>
+              </div>
             </div>
-            <div className="mt-1 flex justify-between text-[10px] tabular-nums tracking-wide text-zinc-500">
-              <span>{formatMs(progressMs)}</span>
-              <span>{formatMs(durationMs)}</span>
-            </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
+
+      {upNext ? (
+        <UpNextCard
+          key={upNextKey}
+          item={upNext}
+          variant={park ? "park" : "compact"}
+          className="music-upnext-swap w-full"
+        />
+      ) : null}
     </div>
   );
 }

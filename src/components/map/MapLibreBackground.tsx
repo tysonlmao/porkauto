@@ -39,14 +39,14 @@ function createArrowElement(): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "porkauto-position-arrow";
   el.innerHTML = `
-    <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M18 4 L30 30 L18 24 L6 30 Z" fill="#60A5FA" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 2 L18 17 L10 13.5 L2 17 Z" fill="#FFFFFF" stroke="rgba(0,0,0,0.35)" stroke-width="1" stroke-linejoin="round"/>
     </svg>
   `;
-  el.style.width = "36px";
-  el.style.height = "36px";
+  el.style.width = "20px";
+  el.style.height = "20px";
   el.style.transformOrigin = "center center";
-  el.style.filter = "drop-shadow(0 0 6px rgba(96,165,250,0.55))";
+  el.style.filter = "drop-shadow(0 1px 3px rgba(0,0,0,0.55))";
   el.style.pointerEvents = "none";
   return el;
 }
@@ -245,11 +245,13 @@ export function MapLibreBackground({
     const map = mapRef.current;
     if (!marker || !map) return;
 
+    const arrowEl = marker.getElement();
+    arrowEl.style.visibility = mode === "park" ? "hidden" : "visible";
+
     marker.setLngLat(toLngLat(position));
 
     // Prefer ref so a touch pan that just paused follow isn't overwritten by this tick.
     if (!followingRef.current || !following) return;
-    if (mode !== "drive" && mode !== "park") return;
 
     const turn = route?.coordinates?.length
       ? findNextTurn(position, route.coordinates)
@@ -294,7 +296,7 @@ export function MapLibreBackground({
       }
     } else if (navigating) {
       map.easeTo({ ...camera, duration: 280, essential: true });
-    } else if (mode === "park" || mode === "drive") {
+    } else {
       map.easeTo({
         center: toLngLat(position),
         bearing,
