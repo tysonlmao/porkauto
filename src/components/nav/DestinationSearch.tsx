@@ -21,9 +21,12 @@ type DestinationSearchProps = {
 };
 
 export function DestinationSearch({ className }: DestinationSearchProps) {
+  const mode = useVehicleStore((s) => s.mode);
+  const gear = useVehicleStore((s) => s.gear);
   const destination = useVehicleStore((s) => s.destination);
   const route = useVehicleStore((s) => s.route);
   const navigating = useVehicleStore((s) => s.navigating);
+  const navReady = useVehicleStore((s) => s.navReady);
   const navBusy = useVehicleStore((s) => s.navBusy);
   const navError = useVehicleStore((s) => s.navError);
   const homeAddress = useVehicleStore((s) => s.homeAddress);
@@ -31,6 +34,7 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
   const searchDestinations = useVehicleStore((s) => s.searchDestinations);
   const setDestination = useVehicleStore((s) => s.setDestination);
   const clearDestination = useVehicleStore((s) => s.clearDestination);
+  const armNavigation = useVehicleStore((s) => s.armNavigation);
   const startNavigation = useVehicleStore((s) => s.startNavigation);
   const stopNavigation = useVehicleStore((s) => s.stopNavigation);
   const { close: closeKeyboard, isOpen: keyboardOpen } = useOnscreenKeyboard();
@@ -133,9 +137,17 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
     setSearchError(null);
   }
 
-  const canStart = Boolean(destination && route && !navigating && !navBusy);
+  const canStart = Boolean(
+    destination && route && !navigating && !navReady && !navBusy,
+  );
+  const inPark = mode === "park" || gear === "P";
   const homeLabel = homeAddress?.trim() || null;
   const busy = searching || navBusy || pickingBusy;
+
+  function handleStart() {
+    if (inPark) armNavigation();
+    else startNavigation();
+  }
 
   return (
     <div
@@ -243,7 +255,13 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
         </div>
       ) : null}
 
-      <div className="flex w-[calc(2.75rem*4+0.5rem*3)] flex-col gap-2">
+      <div className="flex w-[calc(2.75rem*4+0.5rem*3)] flex-col items-stretch gap-2">
+        {navReady ? (
+          <p className="text-right text-[15px] font-medium tracking-tight text-emerald-200">
+            Ready when you are
+          </p>
+        ) : null}
+
         <MediaControls className="w-full justify-between" />
 
         <div className="flex flex-col gap-2">
@@ -260,11 +278,11 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
             <div className="flex w-full items-center gap-2">
               <button
                 type="button"
-                onClick={startNavigation}
+                onClick={handleStart}
                 className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/15 px-4 text-sm font-medium text-emerald-200 backdrop-blur transition hover:bg-emerald-400/25"
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
-                Start navigation
+                Start
               </button>
               {destination ? (
                 <button

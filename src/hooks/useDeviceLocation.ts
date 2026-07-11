@@ -145,13 +145,31 @@ export function useDeviceLocation(enabled: boolean) {
           applyLocation(loc);
 
           const dest = useVehicleStore.getState().destination;
-          if (!dest) return;
+          if (!dest) {
+            if (rerouteTimer.current != null) {
+              window.clearTimeout(rerouteTimer.current);
+              rerouteTimer.current = null;
+            }
+            return;
+          }
 
           if (rerouteTimer.current != null) {
             window.clearTimeout(rerouteTimer.current);
           }
+          const scheduledLat = dest.location.lat;
+          const scheduledLng = dest.location.lng;
           rerouteTimer.current = window.setTimeout(() => {
-            void useVehicleStore.getState().setDestination(dest);
+            rerouteTimer.current = null;
+            const current = useVehicleStore.getState().destination;
+            // Destination was cleared or changed — do not resurrect the old route.
+            if (
+              !current ||
+              current.location.lat !== scheduledLat ||
+              current.location.lng !== scheduledLng
+            ) {
+              return;
+            }
+            void useVehicleStore.getState().setDestination(current);
           }, 12_000);
         },
         (err) => {

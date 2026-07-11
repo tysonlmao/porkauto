@@ -143,7 +143,10 @@ export function MapLibreBackground({
   const lastCameraPos = useRef<LatLng | null>(null);
   const lastBearing = useRef(0);
   const snappedToLive = useRef(false);
-  const previewFitted = useRef(false);
+  /** Route id last fitted for preview overview; null when not in preview. */
+  const previewFittedRouteId = useRef<string | null>(null);
+  const wasNavigating = useRef(navigating);
+  const lastModeRef = useRef(mode);
   /** Sync flag so follow stops mid-gesture before React re-renders (IMU easeTo was cancelling touch pans). */
   const followingRef = useRef(following);
   const onUserInteractRef = useRef(onUserInteract);
@@ -233,7 +236,9 @@ export function MapLibreBackground({
       lastCameraPos.current = null;
       lastBearing.current = 0;
       snappedToLive.current = false;
-      previewFitted.current = false;
+      previewFittedRouteId.current = null;
+      wasNavigating.current = false;
+      lastModeRef.current = "park";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -250,8 +255,16 @@ export function MapLibreBackground({
 
     marker.setLngLat(toLngLat(position));
 
+    const prevMode = lastModeRef.current;
+    const justEnteredDrive = mode === "drive" && prevMode === "park";
+    lastModeRef.current = mode;
+
+    // Park + pending route: keep the full-route overview (fitBounds owns the camera).
+    if (mode === "park" && route && !navigating) return;
+
     // Prefer ref so a touch pan that just paused follow isn't overwritten by this tick.
-    if (!followingRef.current || !following) return;
+    // Still allow the park→drive zoom-in even before parent flips `following`.
+    if ((!followingRef.current || !following) && !justEnteredDrive) return;
 
     const turn = route?.coordinates?.length
       ? findNextTurn(position, route.coordinates)
@@ -267,6 +280,8 @@ export function MapLibreBackground({
     const headingDelta = Math.abs(
       ((bearing - lastBearing.current + 540) % 360) - 180,
     );
+    const justStartedNav = navigating && !wasNavigating.current;
+    wasNavigating.current = navigating;
 
     const camera = {
       center: toLngLat(position),
@@ -275,7 +290,10 @@ export function MapLibreBackground({
       pitch: 0,
     };
 
-    if (firstLiveSnap || movedFar) {
+    if (justStartedNav || justEnteredDrive) {
+      // Zoom back in from park route overview when entering R/N/D or hitting Start.
+      map.easeTo({ ...camera, duration: 900, essential: true });
+    } else if (firstLiveSnap || movedFar) {
       map.jumpTo(
         navigating
           ? camera
@@ -365,25 +383,42 @@ export function MapLibreBackground({
           : emptyLine(),
       );
 
-      if (!navigating && coords.length >= 2 && !previewFitted.current) {
+      const routeId =
+        coords.length >= 2
+          ? `${route!.distanceM}:${coords[0]!.lat},${coords[0]!.lng}:${coords[coords.length - 1]!.lat},${coords[coords.length - 1]!.lng}`
+          : null;
+
+      if (
+        mode === "park" &&
+        !navigating &&
+        routeId &&
+        previewFittedRouteId.current !== routeId
+      ) {
         const bounds = new maplibregl.LngLatBounds(
           toLngLat(coords[0]!),
           toLngLat(coords[0]!),
         );
         for (const p of coords) bounds.extend(toLngLat(p));
         bounds.extend(toLngLat(position));
+        if (destination) bounds.extend(toLngLat(destination.location));
         map.fitBounds(bounds, {
-          padding: 100,
-          duration: 700,
+          padding: {
+            top: 80,
+            bottom: 160,
+            left: 72,
+            right: 72,
+          },
+          duration: 900,
           maxZoom: 15,
           pitch: 0,
-          bearing: position.heading,
+          bearing: 0,
         });
-        previewFitted.current = true;
+        previewFittedRouteId.current = routeId;
       }
 
-      if (!route) previewFitted.current = false;
-      if (navigating) previewFitted.current = false;
+      if (!routeId || mode !== "park" || navigating) {
+        previewFittedRouteId.current = null;
+      }
     };
 
     if (map.isStyleLoaded()) {
@@ -391,7 +426,7 @@ export function MapLibreBackground({
     } else {
       map.once("load", apply);
     }
-  }, [route, mode, position, navigating]);
+  }, [route, mode, position, navigating, destination]);
 
   return (
     <div

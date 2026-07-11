@@ -27,6 +27,11 @@ export function MapBackground({ className }: MapBackgroundProps) {
     if (navigating) setFollowing(true);
   }, [navigating]);
 
+  // Back on R/N/D (drive): resume camera follow after park.
+  useEffect(() => {
+    if (mode === "drive") setFollowing(true);
+  }, [mode]);
+
   const dimmed = !navigating && mode !== "drive";
 
   return (

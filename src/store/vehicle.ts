@@ -31,6 +31,9 @@ import { readConnectionStatus } from "@/lib/networkConnection";
 const SETUP_KEY = "porkauto.setupComplete";
 const DEVICE_KEY = "porkauto.device";
 
+/** Bumped on clear / new setDestination so in-flight route builds cannot resurrect state. */
+let destinationRequestId = 0;
+
 type StoredDevice = {
   deviceId: string;
   pairingCode: string;
@@ -104,6 +107,8 @@ type VehicleActions = {
   requestDeviceAccess: () => Promise<void>;
   setDestination: (destination: Destination | null) => Promise<void>;
   clearDestination: () => void;
+  /** Arm nav from Park — waits for R/N/D before turn-by-turn starts. */
+  armNavigation: () => void;
   startNavigation: () => void;
   stopNavigation: () => void;
   searchDestinations: (query: string) => Promise<Destination[]>;
@@ -125,6 +130,8 @@ type VehicleStore = VehicleState &
   VehicleActions & {
     navBusy: boolean;
     navError: string | null;
+    /** Destination set + Start pressed in Park — waiting for R/N/D. */
+    navReady: boolean;
     /** Active turn-by-turn follow (birds-eye camera). */
     navigating: boolean;
     locating: boolean;
@@ -201,6 +208,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   savedLocations: [],
   navBusy: false,
   navError: null,
+  navReady: false,
   navigating: false,
   locating: false,
   usingGps: false,
@@ -234,6 +242,11 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       gear,
       mode: "drive",
     });
+    // Armed in Park → shifting to R/N/D begins the trip.
+    const { navReady, destination, route } = get();
+    if (navReady && destination && route) {
+      get().startNavigation();
+    }
   },
   setSpeed: (speedKmh) => set({ speedKmh, speedSource: "indev" }),
   setSpeedLimit: (speedLimitKmh) => set({ speedLimitKmh }),
@@ -418,6 +431,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
 
   setDestination: async (destination) => {
     if (!destination) {
+      destinationRequestId += 1;
       set({
         destination: null,
         route: null,
@@ -425,28 +439,37 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
         navError: null,
         navBusy: false,
         navigating: false,
+        navReady: false,
       });
       return;
     }
 
+    const requestId = ++destinationRequestId;
     set({ navBusy: true, navError: null });
     try {
-      const { position, headingSource, navigating } = get();
+      const { position, headingSource } = get();
       const built = await buildRouteTo(position, destination);
+      // Cleared or superseded while routing — do not refill destination / nav.
+      if (requestId !== destinationRequestId) return;
+
+      const current = get();
       set({
         destination,
         route: built.route,
         nav: built.nav,
         position:
           headingSource === "imu"
-            ? position
-            : { ...position, heading: built.heading },
+            ? current.position
+            : { ...current.position, heading: built.heading },
         headingSource: headingSource === "imu" ? "imu" : "route",
         navBusy: false,
         navError: null,
-        navigating,
+        // Live flags after await — never revive navigating from a pre-await snapshot.
+        navigating: current.navigating,
+        navReady: false,
       });
     } catch (err) {
+      if (requestId !== destinationRequestId) return;
       set({
         navBusy: false,
         navError:
@@ -455,22 +478,32 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     }
   },
 
-  clearDestination: () =>
+  clearDestination: () => {
+    destinationRequestId += 1;
     set({
       destination: null,
       route: null,
       nav: null,
       navError: null,
+      navBusy: false,
       navigating: false,
-    }),
+      navReady: false,
+    });
+  },
+
+  armNavigation: () => {
+    const { destination, route } = get();
+    if (!destination || !route) return;
+    set({ navReady: true, navError: null });
+  },
 
   startNavigation: () => {
     const { destination, route } = get();
     if (!destination || !route) return;
     set({
       navigating: true,
+      navReady: false,
       mode: "drive",
-      gear: "D",
       navError: null,
     });
   },
@@ -478,9 +511,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   stopNavigation: () =>
     set({
       navigating: false,
-      mode: "park",
-      gear: "P",
-      speedKmh: 0,
+      navReady: false,
     }),
 
   completeSetup: (device) => {
@@ -562,6 +593,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       navBusy: false,
       navError: null,
       navigating: false,
+      navReady: false,
       locating: false,
       usingGps: false,
       locationSource: null,
