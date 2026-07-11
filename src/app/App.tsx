@@ -1,5 +1,6 @@
 import { MapBackground } from "@/components/map/MapBackground";
 import { HudOverlay } from "@/components/hud/HudOverlay";
+import { ReverseCamera } from "@/components/hud/ReverseCamera";
 import { IndevButton } from "@/components/hud/IndevButton";
 import { DestinationSearch } from "@/components/nav/DestinationSearch";
 import { PermissionsGate } from "@/components/nav/PermissionsGate";
@@ -15,6 +16,7 @@ import { useVehicleStore } from "@/store/vehicle";
 
 export function App() {
   const setupComplete = useVehicleStore((s) => s.setupComplete);
+  const gear = useVehicleStore((s) => s.gear);
   useNetworkConnection(true);
   useDeviceLocation(setupComplete);
   useDeviceMotion(setupComplete);
@@ -39,8 +41,9 @@ export function App() {
     <KeyboardProvider>
       <div className="app-shell relative bg-black text-white">
         <MapBackground />
+        <ReverseCamera />
         <HudOverlay />
-        <DestinationSearch />
+        {gear !== "R" ? <DestinationSearch /> : null}
         <PermissionsGate />
       </div>
     </KeyboardProvider>

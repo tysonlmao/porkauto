@@ -40,8 +40,11 @@ export function HudOverlay() {
     return () => ro.disconnect();
   }, [mode]);
 
+  const reversing = gear === "R";
+
   const overLimit =
     mode === "drive" &&
+    !reversing &&
     speedLimitKmh != null &&
     speedKmh > speedLimitKmh;
 
@@ -52,12 +55,14 @@ export function HudOverlay() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 select-none">
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_42%,rgba(0,0,0,0.55)_100%)]"
-        aria-hidden
-      />
+      {!reversing ? (
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_42%,rgba(0,0,0,0.55)_100%)]"
+          aria-hidden
+        />
+      ) : null}
 
-      {spotifyNeedsGesture ? (
+      {spotifyNeedsGesture && !reversing ? (
         <button
           type="button"
           className="pointer-events-auto absolute inset-x-0 bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] z-20 mx-auto max-w-md rounded-sm border border-white/15 bg-black/80 px-4 py-3 text-center text-[13px] text-zinc-200 backdrop-blur-sm"
@@ -68,11 +73,11 @@ export function HudOverlay() {
 
       <div className="absolute flex flex-col items-end gap-2.5 safe-top safe-right">
         <div
-          key={`status-${mode}`}
+          key={`status-${mode}-${gear}`}
           className="hud-fade-in flex flex-col items-end gap-2.5"
         >
           <PrndlIndicator gear={gear} />
-          {mode !== "park" ? (
+          {mode !== "park" && !reversing ? (
             <>
               <Speedometer speedKmh={speedKmh} overLimit={overLimit} />
               {mode === "drive" && speedLimitKmh != null ? (
@@ -85,7 +90,7 @@ export function HudOverlay() {
         </div>
       </div>
 
-      {mode === "park" ? (
+      {mode === "park" && !reversing ? (
         <div key="park" className="absolute inset-0 hud-fade-in">
           <div className="absolute inset-0 flex items-center justify-center">
             <div ref={parkClockRef} className="w-max max-w-[calc(100vw-3rem)]">
@@ -114,7 +119,11 @@ export function HudOverlay() {
       ) : null}
 
       {/* Left stack: time (drive), music, then indev status — aligned with top HUD */}
-      {mode === "drive" ? (
+      {reversing ? (
+        <div className="absolute safe-top safe-left">
+          <IndevButton />
+        </div>
+      ) : mode === "drive" ? (
         <div
           key="drive-left"
           className="absolute flex flex-col items-start gap-5 hud-fade-in safe-top safe-left"
@@ -132,7 +141,7 @@ export function HudOverlay() {
         </div>
       )}
 
-      {mode === "drive" && navigating && nextManeuver ? (
+      {mode === "drive" && !reversing && navigating && nextManeuver ? (
         <div
           key="drive-maneuver"
           className="absolute inset-x-0 top-[calc(0.75rem+env(safe-area-inset-top,0px))] z-20 flex justify-center px-4 hud-fade-in"
@@ -146,7 +155,7 @@ export function HudOverlay() {
         </div>
       ) : null}
 
-      {mode === "drive" && navigating && destination ? (
+      {mode === "drive" && !reversing && navigating && destination ? (
         <div key="drive-nav" className="absolute hud-fade-in safe-bottom safe-left">
           <NavStatus
             destinationName={destination.name}
