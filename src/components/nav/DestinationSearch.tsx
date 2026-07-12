@@ -37,7 +37,7 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
   const armNavigation = useVehicleStore((s) => s.armNavigation);
   const startNavigation = useVehicleStore((s) => s.startNavigation);
   const stopNavigation = useVehicleStore((s) => s.stopNavigation);
-  const { close: closeKeyboard, isOpen: keyboardOpen } = useOnscreenKeyboard();
+  const { close: closeKeyboard } = useOnscreenKeyboard();
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -152,8 +152,7 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
   return (
     <div
       className={cn(
-        "pointer-events-auto absolute z-20 flex w-[min(22rem,calc(100vw-2.5rem))] flex-col items-end gap-2 safe-right",
-        keyboardOpen ? "bottom-[13.5rem]" : "safe-bottom",
+        "pointer-events-auto absolute z-20 flex w-[min(22rem,calc(100vw-2.5rem))] flex-col items-end gap-2 safe-right safe-bottom",
         className,
       )}
     >

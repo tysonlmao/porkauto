@@ -42,7 +42,7 @@ function Key({
         onPress();
       }}
       className={cn(
-        "flex h-11 min-w-0 flex-1 items-center justify-center rounded-md border border-white/10 bg-white/10 text-[15px] font-medium text-white select-none transition active:bg-white/25",
+        "flex h-10 min-w-0 flex-1 items-center justify-center rounded-md border border-white/10 bg-white/10 text-[14px] font-medium text-white select-none transition active:bg-white/25",
         wide && "flex-[1.6]",
         active && "bg-white/25",
         className,
@@ -56,6 +56,7 @@ function Key({
 
 /**
  * Docked QWERTY keyboard for embedded displays (no native soft keyboard).
+ * Sits bottom-right as a panel to the left of the destination/media controls.
  */
 export function OnscreenKeyboard({
   value,
@@ -82,11 +83,16 @@ export function OnscreenKeyboard({
 
   return (
     <div
-      className="pointer-events-auto fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-black/95 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md hud-fade-in"
+      className="pointer-events-auto fixed z-50 w-[min(28rem,calc(100vw-min(22rem,calc(100vw-2.5rem))-3.5rem))] overflow-hidden rounded-xl border border-white/10 bg-black/95 p-2 shadow-2xl backdrop-blur-md hud-fade-in safe-bottom"
+      style={{
+        // Sit just left of the destination/media controls column (22rem + gap + safe-right).
+        right:
+          "calc(1.25rem + env(safe-area-inset-right, 0px) + min(22rem, calc(100vw - 2.5rem)) + 0.5rem)",
+      }}
       role="group"
       aria-label="On-screen keyboard"
     >
-      <div className="mx-auto mb-1.5 flex w-full max-w-3xl items-center justify-end px-1">
+      <div className="mb-1.5 flex items-center justify-end px-1">
         <button
           type="button"
           onPointerDown={(e) => {
@@ -98,20 +104,20 @@ export function OnscreenKeyboard({
           Hide
         </button>
       </div>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-1.5">
+      <div className="flex w-full flex-col gap-1.5">
         {layout === "numbers" ? (
           <>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
               {NUM_ROW.map((k) => (
                 <Key key={k} label={k} onPress={() => insert(k)} />
               ))}
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
               {SYMBOL_ROW.map((k) => (
                 <Key key={k} label={k} onPress={() => insert(k)} />
               ))}
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
               <Key
                 label="abc"
                 wide
@@ -135,7 +141,7 @@ export function OnscreenKeyboard({
           </>
         ) : (
           <>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
               {ROW1.map((k) => (
                 <Key
                   key={k}
@@ -144,7 +150,7 @@ export function OnscreenKeyboard({
                 />
               ))}
             </div>
-            <div className="flex gap-1.5 px-3">
+            <div className="flex gap-1 px-2">
               {ROW2.map((k) => (
                 <Key
                   key={k}
@@ -153,7 +159,7 @@ export function OnscreenKeyboard({
                 />
               ))}
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1">
               <Key
                 label="shift"
                 wide
@@ -186,7 +192,7 @@ export function OnscreenKeyboard({
           </>
         )}
 
-        <div className="flex gap-1.5">
+        <div className="flex gap-1">
           {layout === "letters" ? (
             <Key
               label="123"
@@ -204,7 +210,10 @@ export function OnscreenKeyboard({
           )}
           <Key
             label="space"
-            onPress={() => insert(" ")}
+            onPress={() => {
+              insert(" ");
+              if (layout === "numbers") setLayout("letters");
+            }}
             className="flex-[5] text-[12px] uppercase tracking-wide text-zinc-400"
           >
             space
