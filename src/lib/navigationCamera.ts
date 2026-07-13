@@ -119,6 +119,18 @@ export type ActiveManeuver = {
   index: number;
 };
 
+/** Pull a short street / place label from an OSRM-style instruction. */
+export function streetLabelFromInstruction(instruction: string): string {
+  const raw = instruction.trim();
+  if (!raw) return "Continue";
+  const onto = raw.match(/\b(?:onto|on|toward|towards|to)\s+(.+)$/i);
+  if (onto?.[1]) {
+    return onto[1].replace(/\s*\(.*?\)\s*/g, " ").trim() || raw;
+  }
+  // "Turn left" / "Keep right" with no road — keep short action text.
+  return raw.replace(/^(?:In\s+[\d.]+\s*(?:m|km)\s*)/i, "").trim() || raw;
+}
+
 /**
  * Pick the upcoming route step the driver should act on.
  * Skips departed steps once within ~25 m past their maneuver point.
@@ -161,6 +173,33 @@ export function findNextManeuver(
     modifier: step.modifier,
     index: current,
   };
+}
+
+/** Maneuver after the current one (Tesla “then” row). */
+export function findThenManeuver(
+  position: LatLng,
+  steps: Array<{
+    instruction: string;
+    distanceM: number;
+    location: LatLng;
+    type: string;
+    modifier?: string;
+  }>,
+): ActiveManeuver | null {
+  const next = findNextManeuver(position, steps);
+  if (!next) return null;
+  for (let i = next.index + 1; i < steps.length; i++) {
+    const step = steps[i]!;
+    if (step.type === "depart") continue;
+    return {
+      instruction: step.instruction,
+      distanceM: step.distanceM,
+      type: step.type,
+      modifier: step.modifier,
+      index: i,
+    };
+  }
+  return null;
 }
 
 export function formatManeuverDistance(meters: number): string {

@@ -1,3 +1,5 @@
+import { resolveAppearance } from "@/lib/displayTheme";
+import { useVehicleStore } from "@/store/vehicle";
 import { cn } from "@/lib/utils";
 
 type SpeedometerProps = {
@@ -11,17 +13,29 @@ export function Speedometer({
   overLimit = false,
   className,
 }: SpeedometerProps) {
+  const displayTheme = useVehicleStore((s) => s.displayTheme);
+  const light = resolveAppearance(displayTheme) === "light";
+
   return (
     <div className={cn("flex flex-col items-end leading-none", className)}>
       <span
         className={cn(
           "text-[4.25rem] font-semibold tracking-[-0.04em] tabular-nums transition-colors duration-300 md:text-[4.75rem]",
-          overLimit ? "text-red-400" : "text-white",
+          overLimit
+            ? "text-red-500"
+            : light
+              ? "text-zinc-900"
+              : "text-white",
         )}
       >
         {Math.round(speedKmh)}
       </span>
-      <span className="mt-1.5 text-[11px] font-medium tracking-[0.08em] text-zinc-500">
+      <span
+        className={cn(
+          "mt-1.5 text-[11px] font-medium tracking-[0.08em]",
+          light ? "text-zinc-500" : "text-zinc-500",
+        )}
+      >
         km/h
       </span>
     </div>

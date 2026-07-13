@@ -8,19 +8,22 @@ import {
   type LocationSource,
 } from "@/lib/geolocation";
 import { PositionFilter } from "@/lib/positionFilter";
+import { computeRouteProgress } from "@/lib/routeProgress";
+import { formatEta } from "@/lib/routing";
 import { useVehicleStore } from "@/store/vehicle";
 
 /**
  * Soft-start location after setup.
- * Uses GPS whenever the browser can provide it; IP is only an interim/fallback
- * so the car cursor still appears quickly on Electrobun/desktop.
- * Filters position (EMA + short DR + soft route snap) for a stabler cursor.
+ * Uses GPS whenever the browser can provide it; IP is only an interim/fallback.
+ * Filters position (EMA + short DR + windowed route snap). Reroutes only when
+ * off-route (debounced), and refreshes live ETA from remaining distance.
  */
 export function useDeviceLocation(enabled: boolean) {
   const setLocationStatus = useVehicleStore((s) => s.setLocationStatus);
   const rerouteTimer = useRef<number | null>(null);
   const clearErrorTimer = useRef<number | null>(null);
   const filterRef = useRef(new PositionFilter());
+  const routeIndexRef = useRef(0);
   const lastLocRef = useRef<DeviceLocation | null>(null);
 
   useEffect(() => {
@@ -31,7 +34,37 @@ export function useDeviceLocation(enabled: boolean) {
     let drTimer: number | null = null;
 
     filterRef.current.reset();
+    routeIndexRef.current = 0;
     setLocationStatus({ locating: true, error: null });
+
+    function updateNavProgress(lat: number, lng: number) {
+      const state = useVehicleStore.getState();
+      if (!state.navigating || !state.route?.coordinates?.length) return;
+
+      const progress = computeRouteProgress(
+        { lat, lng },
+        state.route.coordinates,
+        routeIndexRef.current,
+      );
+      routeIndexRef.current = progress.index;
+
+      // Scale remaining time from original duration vs remaining distance.
+      const totalM = Math.max(1, state.route.distanceM);
+      const frac = Math.min(1, progress.remainingDistanceM / totalM);
+      const remainingSec = Math.max(0, state.route.durationSec * frac);
+      const { etaTime, remainingMinutes } = formatEta(remainingSec);
+
+      const destName = state.destination?.name ?? state.nav?.destination ?? "";
+      state.setNav({
+        etaTime,
+        remainingMinutes,
+        destination: destName,
+        remainingDistanceM: progress.remainingDistanceM,
+        offRoute: progress.offRoute,
+      });
+
+      return progress;
+    }
 
     function applyLocation(loc: DeviceLocation) {
       const state = useVehicleStore.getState();
@@ -50,11 +83,13 @@ export function useDeviceLocation(enabled: boolean) {
           state.route.coordinates,
           25,
           0.35,
+          routeIndexRef.current,
         );
         if (soft) snapped = soft;
       }
 
       state.setPosition({ lat: snapped.lat, lng: snapped.lng });
+      const progress = updateNavProgress(snapped.lat, snapped.lng);
 
       if (loc.heading != null) {
         if (state.headingSource === "imu") {
@@ -82,6 +117,35 @@ export function useDeviceLocation(enabled: boolean) {
         usingGps: true,
         locationSource: loc.source,
       });
+
+      // Reroute only when off-route (not on every GPS tick).
+      const dest = useVehicleStore.getState().destination;
+      if (!dest || !progress?.offRoute) {
+        if (!dest && rerouteTimer.current != null) {
+          window.clearTimeout(rerouteTimer.current);
+          rerouteTimer.current = null;
+        }
+        return;
+      }
+
+      if (rerouteTimer.current != null) return;
+      const scheduledLat = dest.location.lat;
+      const scheduledLng = dest.location.lng;
+      rerouteTimer.current = window.setTimeout(() => {
+        rerouteTimer.current = null;
+        const current = useVehicleStore.getState().destination;
+        if (
+          !current ||
+          current.location.lat !== scheduledLat ||
+          current.location.lng !== scheduledLng
+        ) {
+          return;
+        }
+        const still = useVehicleStore.getState();
+        if (!still.navigating || !still.nav?.offRoute) return;
+        routeIndexRef.current = 0;
+        void still.setDestination(current);
+      }, 4_000);
     }
 
     function tickDeadReckon() {
@@ -99,6 +163,7 @@ export function useDeviceLocation(enabled: boolean) {
           state.route.coordinates,
           25,
           0.2,
+          routeIndexRef.current,
         );
         if (soft) next = soft;
       }
@@ -109,6 +174,7 @@ export function useDeviceLocation(enabled: boolean) {
         Math.abs(cur.lng - next.lng) > 1e-7
       ) {
         state.setPosition({ lat: next.lat, lng: next.lng });
+        updateNavProgress(next.lat, next.lng);
       }
     }
 
@@ -143,34 +209,6 @@ export function useDeviceLocation(enabled: boolean) {
       stopWatch = watchDeviceLocation(
         (loc) => {
           applyLocation(loc);
-
-          const dest = useVehicleStore.getState().destination;
-          if (!dest) {
-            if (rerouteTimer.current != null) {
-              window.clearTimeout(rerouteTimer.current);
-              rerouteTimer.current = null;
-            }
-            return;
-          }
-
-          if (rerouteTimer.current != null) {
-            window.clearTimeout(rerouteTimer.current);
-          }
-          const scheduledLat = dest.location.lat;
-          const scheduledLng = dest.location.lng;
-          rerouteTimer.current = window.setTimeout(() => {
-            rerouteTimer.current = null;
-            const current = useVehicleStore.getState().destination;
-            // Destination was cleared or changed — do not resurrect the old route.
-            if (
-              !current ||
-              current.location.lat !== scheduledLat ||
-              current.location.lng !== scheduledLng
-            ) {
-              return;
-            }
-            void useVehicleStore.getState().setDestination(current);
-          }, 12_000);
         },
         (err) => {
           if (err.code === "timeout") return;

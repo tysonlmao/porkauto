@@ -1,5 +1,5 @@
 import type { LatLng } from "@/store/types";
-import { haversineM } from "@/lib/navigationCamera";
+import { snapTargetOnRoute } from "@/lib/routeProgress";
 
 function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -97,11 +97,15 @@ export class PositionFilter {
     return { lat: this.lat, lng: this.lng, accuracyM: null };
   }
 
-  /** Soft-snap toward nearest route point within maxSnapM. */
+  /**
+   * Soft-snap toward nearest route point within maxSnapM.
+   * Pass `hintIndex` to search a window around progress (avoids full O(n) scans).
+   */
   softSnapToRoute(
     route: LatLng[],
     maxSnapM = 25,
     blend = 0.35,
+    hintIndex = 0,
   ): FilteredPosition | null {
     if (this.lat == null || this.lng == null || route.length === 0) {
       return this.lat != null && this.lng != null
@@ -110,20 +114,13 @@ export class PositionFilter {
     }
 
     const here = { lat: this.lat, lng: this.lng };
-    let best = route[0]!;
-    let bestDist = Infinity;
-    for (const p of route) {
-      const d = haversineM(here, p);
-      if (d < bestDist) {
-        bestDist = d;
-        best = p;
-      }
+    const snap = snapTargetOnRoute(here, route, hintIndex, maxSnapM);
+    if (!snap) {
+      return { lat: this.lat, lng: this.lng, accuracyM: null };
     }
 
-    if (bestDist <= maxSnapM) {
-      this.lat = this.lat * (1 - blend) + best.lat * blend;
-      this.lng = this.lng * (1 - blend) + best.lng * blend;
-    }
+    this.lat = this.lat * (1 - blend) + snap.point.lat * blend;
+    this.lng = this.lng * (1 - blend) + snap.point.lng * blend;
 
     return { lat: this.lat, lng: this.lng, accuracyM: null };
   }

@@ -1,10 +1,58 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import fs from "fs";
 import tailwindcss from "@tailwindcss/vite";
 
+/** Same-origin debug ingest for playlist picker runtime evidence. */
+function debugLogPlugin(): Plugin {
+  const logPath = path.resolve(__dirname, ".cursor/debug-playlist.log");
+  return {
+    name: "debug-playlist-log",
+    configureServer(server) {
+      server.middlewares.use("/__debug_log", (req, res, next) => {
+        if (req.method !== "POST") {
+          next();
+          return;
+        }
+        const chunks: Uint8Array[] = [];
+        req.on("data", (c) => {
+          const part =
+            c instanceof Uint8Array
+              ? new Uint8Array(c.buffer, c.byteOffset, c.byteLength)
+              : new Uint8Array(Buffer.from(c));
+          chunks.push(part);
+        });
+        req.on("end", () => {
+          try {
+            const dir = path.dirname(logPath);
+            fs.mkdirSync(dir, { recursive: true });
+            const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+            const merged = new Uint8Array(total);
+            let offset = 0;
+            for (const c of chunks) {
+              merged.set(c, offset);
+              offset += c.byteLength;
+            }
+            fs.appendFileSync(
+              logPath,
+              new TextDecoder().decode(merged) + "\n",
+              "utf8",
+            );
+            res.statusCode = 204;
+            res.end();
+          } catch (err) {
+            res.statusCode = 500;
+            res.end(String(err));
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), debugLogPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

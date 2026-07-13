@@ -211,6 +211,33 @@ export async function confirmDevicePairing(
   };
 }
 
+export async function patchDeviceConfig(
+  deviceId: string,
+  token: string,
+  config: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  assertCredentialAlive(deviceId, token);
+
+  const res = await fetch(`${apiBase()}/devices/${deviceId}/config`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ config }),
+  });
+
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      rememberDeviceAuthFailure(deviceId, token);
+    }
+    await throwApiError(res, "Failed to save config");
+  }
+
+  const data = (await res.json()) as { config?: Record<string, unknown> };
+  return data.config ?? config;
+}
+
 export async function unpairDevice(
   deviceId: string,
   token: string,

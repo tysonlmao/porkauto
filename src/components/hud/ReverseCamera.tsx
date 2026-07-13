@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useVehicleStore } from "@/store/vehicle";
 import { cn } from "@/lib/utils";
+import { MgOpenCross } from "@/components/graphics";
 
 type ReverseCameraProps = {
   className?: string;
@@ -130,6 +131,9 @@ export function ReverseCamera({ className }: ReverseCameraProps) {
       </svg>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pt-16 text-center">
+        <div className="mb-2 flex justify-center text-red-300/70">
+          <MgOpenCross className="mg-graphic h-5 w-5" aria-hidden />
+        </div>
         <p className="text-sm font-semibold uppercase tracking-[0.28em] text-red-400">
           Reverse
         </p>

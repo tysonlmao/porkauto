@@ -81,6 +81,70 @@ export const requireUser = createMiddleware<{ Variables: AuthVariables }>(
   },
 );
 
+/**
+ * Device/owner auth for routes without `:id` in the path (e.g. /geo/*).
+ * JWT device|owner is enough; raw API keys require `X-Device-Id`.
+ */
+export const requireDeviceBearer = createMiddleware<{ Variables: AuthVariables }>(
+  async (c, next) => {
+    const header = c.req.header("authorization");
+    if (!header?.startsWith("Bearer ")) {
+      throw new HTTPException(401, { message: "Missing bearer token" });
+    }
+
+    const token = header.slice("Bearer ".length).trim();
+    if (!token) {
+      throw new HTTPException(401, { message: "Missing bearer token" });
+    }
+
+    try {
+      const payload = await verifyToken(token);
+      if (payload.typ !== "device" && payload.typ !== "owner") {
+        throw new HTTPException(403, {
+          message: "Device or owner authentication required",
+        });
+      }
+      c.set("auth", payload);
+      await next();
+      return;
+    } catch (err) {
+      if (err instanceof HTTPException) throw err;
+      // Fall through: treat as raw API key.
+    }
+
+    const deviceId = c.req.header("x-device-id")?.trim();
+    if (!deviceId) {
+      throw new HTTPException(401, {
+        message: "Invalid or expired token (API keys require X-Device-Id)",
+      });
+    }
+
+    const device = await db.query.devices.findFirst({
+      where: eq(devices.id, deviceId),
+    });
+    if (!device) {
+      throw new HTTPException(401, { message: "Invalid or expired token" });
+    }
+
+    if (device.ownerTokenHash && (await verifySecret(token, device.ownerTokenHash))) {
+      c.set("auth", { sub: device.id, typ: "owner" });
+      await next();
+      return;
+    }
+
+    if (
+      device.deviceSecretHash &&
+      (await verifySecret(token, device.deviceSecretHash))
+    ) {
+      c.set("auth", { sub: device.id, typ: "device" });
+      await next();
+      return;
+    }
+
+    throw new HTTPException(401, { message: "Invalid or expired token" });
+  },
+);
+
 export function isDeviceClaimed(device: {
   claimedAt: Date | null;
   ownerTokenHash: string | null;

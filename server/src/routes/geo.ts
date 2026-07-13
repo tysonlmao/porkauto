@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { requireDeviceBearer } from "../middleware/auth";
 
 type ApproxLocation = {
   lat: number;
@@ -20,9 +21,18 @@ type NominatimResult = {
 
 const UA = "porkauto-dev/0.0.1 (car display; contact: dev@porkauto.local)";
 
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  // Clear timer if aborted early (fetch completes) — AbortSignal has no cleanup hook;
+  // unref so it doesn't keep the process alive in tests.
+  timer.unref?.();
+  return controller.signal;
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(12_000),
+    signal: timeoutSignal(12_000),
     ...init,
     headers: {
       Accept: "application/json",
@@ -127,7 +137,7 @@ geoRoutes.get("/approx", async (c) => {
  * Place search — proxied so browser/tunnel clients aren't blocked by Nominatim CORS.
  * Optional nearLat/nearLng bias results toward the vehicle.
  */
-geoRoutes.get("/search", async (c) => {
+geoRoutes.get("/search", requireDeviceBearer, async (c) => {
   const q = (c.req.query("q") ?? "").trim();
   if (q.length < 2) {
     return c.json({ results: [] });
@@ -318,7 +328,7 @@ async function queryOverpass(
 ): Promise<OverpassElement[]> {
   const response = await fetch(endpoint, {
     method: "POST",
-    signal: AbortSignal.timeout(10_000),
+    signal: timeoutSignal(10_000),
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Accept: "application/json",
@@ -366,7 +376,7 @@ function pickBestSpeedLimit(
 }
 
 /** Live speed limit near a point via Overpass (OSM maxspeed). */
-geoRoutes.get("/speed-limit", async (c) => {
+geoRoutes.get("/speed-limit", requireDeviceBearer, async (c) => {
   const lat = Number(c.req.query("lat"));
   const lng = Number(c.req.query("lng"));
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -474,7 +484,7 @@ function formatOsrmInstruction(step: OsrmStep): string {
 }
 
 /** Driving route via OSRM — same-origin for HTTPS tunnel clients. */
-geoRoutes.get("/route", async (c) => {
+geoRoutes.get("/route", requireDeviceBearer, async (c) => {
   const fromLat = Number(c.req.query("fromLat"));
   const fromLng = Number(c.req.query("fromLng"));
   const toLat = Number(c.req.query("toLat"));

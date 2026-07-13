@@ -230,6 +230,58 @@ export async function fetchPlaybackQueue(
     });
 }
 
+export type SpotifyConnectDevice = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  type: string | null;
+};
+
+/** List Connect devices available to this account. */
+export async function fetchSpotifyDevices(
+  accessToken: string,
+): Promise<SpotifyConnectDevice[]> {
+  const { status, text } = await spotifyFetch(
+    `${SPOTIFY_API}/me/player/devices`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (status < 200 || status >= 300) {
+    throw new Error(`Spotify devices failed (${status}): ${text}`);
+  }
+  const data = JSON.parse(text) as {
+    devices?: Array<{
+      id?: string | null;
+      name?: string;
+      is_active?: boolean;
+      type?: string;
+    }>;
+  };
+  return (data.devices ?? [])
+    .filter((d): d is { id: string; name?: string; is_active?: boolean; type?: string } =>
+      Boolean(d.id),
+    )
+    .map((d) => ({
+      id: d.id,
+      name: d.name?.trim() || "Unknown",
+      isActive: Boolean(d.is_active),
+      type: d.type ?? null,
+    }));
+}
+
+/**
+ * Prefer the Web Playback SDK device named "Porkauto" (host display).
+ * Falls back to the first name match containing "porkauto".
+ */
+export async function resolvePorkautoSpotifyDeviceId(
+  accessToken: string,
+): Promise<string | null> {
+  const devices = await fetchSpotifyDevices(accessToken);
+  const exact = devices.find((d) => d.name.toLowerCase() === "porkauto");
+  if (exact) return exact.id;
+  const loose = devices.find((d) => /porkauto/i.test(d.name));
+  return loose?.id ?? null;
+}
+
 /** Move Connect playback onto a Web Playback SDK device. */
 export async function transferPlayback(
   accessToken: string,

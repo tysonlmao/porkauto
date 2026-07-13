@@ -12,11 +12,17 @@ import { useNetworkConnection } from "@/hooks/useNetworkConnection";
 import { usePairingSync } from "@/hooks/usePairingSync";
 import { useSpeedLimit } from "@/hooks/useSpeedLimit";
 import { useSpotifyPlayer } from "@/hooks/useSpotifyPlayer";
+import { resolveAppearance } from "@/lib/displayTheme";
+import { hudBackdropColor } from "@/lib/mapTheme";
 import { useVehicleStore } from "@/store/vehicle";
+import { cn } from "@/lib/utils";
 
 export function App() {
   const setupComplete = useVehicleStore((s) => s.setupComplete);
   const gear = useVehicleStore((s) => s.gear);
+  const displayTheme = useVehicleStore((s) => s.displayTheme);
+  const appearance = resolveAppearance(displayTheme);
+  const light = appearance === "light";
   useNetworkConnection(true);
   useDeviceLocation(setupComplete);
   useDeviceMotion(setupComplete);
@@ -39,7 +45,13 @@ export function App() {
 
   return (
     <KeyboardProvider>
-      <div className="app-shell relative bg-black text-white">
+      <div
+        className={cn(
+          "app-shell relative",
+          light ? "bg-[#e9ecef] text-zinc-900" : "bg-[#0e1014] text-white",
+        )}
+        style={{ backgroundColor: hudBackdropColor(appearance) }}
+      >
         <MapBackground />
         <ReverseCamera />
         <HudOverlay />

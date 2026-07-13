@@ -1,0 +1,34 @@
+import type { SVGProps } from "react";
+
+export function MgThinRail(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 177.6 17.45" aria-hidden {...props} fill="currentColor">
+  <defs>
+    <style>{`.mgthinrail-cls-1, .mgthinrail-cls-2 {
+        fill: none;
+        stroke: currentColor;
+        stroke-miterlimit: 10;
+        stroke-width: .75px;
+      }
+
+      .mgthinrail-cls-2 {
+        stroke-linecap: square;
+      }`}</style>
+  </defs>
+  <g>
+    <g>
+      <g>
+        <line className="mgthinrail-cls-1" x1="17.15" y1="8.72" x2="177.07" y2="8.72"/>
+        <line className="mgthinrail-cls-2" x1="172.88" y1="12.91" x2="177.07" y2="8.72"/>
+        <line className="mgthinrail-cls-2" x1="172.88" y1="4.54" x2="177.07" y2="8.72"/>
+      </g>
+      <path d="M8.72.75c4.4,0,7.97,3.58,7.97,7.97s-3.58,7.97-7.97,7.97S.75,13.12.75,8.72,4.33.75,8.72.75M8.72,0C3.91,0,0,3.91,0,8.72s3.91,8.72,8.72,8.72,8.72-3.91,8.72-8.72S13.54,0,8.72,0h0Z"/>
+      <g>
+        <line className="mgthinrail-cls-1" x1="8.72" y1="4.34" x2="8.72" y2="13.11"/>
+        <line className="mgthinrail-cls-1" x1="4.34" y1="8.72" x2="13.11" y2="8.72"/>
+      </g>
+    </g>
+  </g>
+</svg>
+  );
+}

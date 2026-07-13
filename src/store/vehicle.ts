@@ -5,6 +5,7 @@ import {
   type AppMode,
   type ConnectionStatus,
   type Destination,
+  type DisplayThemeMode,
   type Gear,
   type MusicTrack,
   type MusicQueueItem,
@@ -20,6 +21,8 @@ import {
   geocodePlaces,
   straightRoute,
 } from "@/lib/routing";
+import { parseDisplayThemeMode } from "@/lib/displayTheme";
+import { patchDeviceConfig } from "@/lib/api";
 import {
   getDeviceLocationFast,
   LocationError,
@@ -30,6 +33,8 @@ import { readConnectionStatus } from "@/lib/networkConnection";
 
 const SETUP_KEY = "porkauto.setupComplete";
 const DEVICE_KEY = "porkauto.device";
+const PLACES_KEY = "porkauto.places";
+const THEME_KEY = "porkauto.displayTheme";
 
 /** Bumped on clear / new setDestination so in-flight route builds cannot resurrect state. */
 let destinationRequestId = 0;
@@ -65,6 +70,61 @@ function loadDevice(): StoredDevice | null {
     return JSON.parse(raw) as StoredDevice;
   } catch {
     return null;
+  }
+}
+
+function loadLocalPlaces(): {
+  homeAddress: string | null;
+  savedLocations: SavedLocation[];
+} {
+  try {
+    const raw = localStorage.getItem(PLACES_KEY);
+    if (!raw) return { homeAddress: null, savedLocations: [] };
+    const parsed = JSON.parse(raw) as {
+      homeAddress?: string | null;
+      savedLocations?: SavedLocation[];
+    };
+    return {
+      homeAddress:
+        typeof parsed.homeAddress === "string"
+          ? parsed.homeAddress.trim() || null
+          : null,
+      savedLocations: Array.isArray(parsed.savedLocations)
+        ? parsed.savedLocations
+        : [],
+    };
+  } catch {
+    return { homeAddress: null, savedLocations: [] };
+  }
+}
+
+function persistLocalPlaces(
+  homeAddress: string | null,
+  savedLocations: SavedLocation[],
+) {
+  try {
+    localStorage.setItem(
+      PLACES_KEY,
+      JSON.stringify({ homeAddress, savedLocations }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function loadDisplayTheme(): DisplayThemeMode {
+  try {
+    return parseDisplayThemeMode(localStorage.getItem(THEME_KEY));
+  } catch {
+    return "dark";
+  }
+}
+
+function persistDisplayTheme(mode: DisplayThemeMode) {
+  try {
+    localStorage.setItem(THEME_KEY, mode);
+  } catch {
+    // ignore
   }
 }
 
@@ -121,9 +181,11 @@ type VehicleActions = {
     companionName?: string | null;
     homeAddress?: string | null;
     savedLocations?: SavedLocation[];
+    displayTheme?: DisplayThemeMode;
   }) => void;
   setHomeAddress: (homeAddress: string | null) => void;
   setSavedLocations: (savedLocations: SavedLocation[]) => void;
+  setDisplayTheme: (theme: DisplayThemeMode) => void;
 };
 
 type VehicleStore = VehicleState &
@@ -158,6 +220,8 @@ type VehicleStore = VehicleState &
 };
 
 const stored = loadDevice();
+const localPlaces = loadLocalPlaces();
+const initialTheme = loadDisplayTheme();
 
 async function buildRouteTo(
   position: VehiclePosition,
@@ -204,8 +268,9 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
   deviceName: stored?.name ?? null,
   companionName: stored?.companionName ?? null,
   paired: stored?.paired ?? false,
-  homeAddress: null,
-  savedLocations: [],
+  homeAddress: localPlaces.homeAddress,
+  savedLocations: localPlaces.savedLocations,
+  displayTheme: initialTheme,
   navBusy: false,
   navError: null,
   navReady: false,
@@ -576,8 +641,6 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       deviceName: null,
       companionName: null,
       paired: false,
-      homeAddress: null,
-      savedLocations: [],
       mode: "park",
       gear: "P",
       speedKmh: 0,
@@ -615,6 +678,7 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
     companionName,
     homeAddress,
     savedLocations,
+    displayTheme,
   }) => {
     try {
       const raw = localStorage.getItem(DEVICE_KEY);
@@ -643,9 +707,48 @@ export const useVehicleStore = create<VehicleStore>((set, get) => ({
       ...(companionName !== undefined ? { companionName } : {}),
       ...(homeAddress !== undefined ? { homeAddress } : {}),
       ...(savedLocations !== undefined ? { savedLocations } : {}),
+      ...(displayTheme !== undefined ? { displayTheme } : {}),
     });
+    if (homeAddress !== undefined || savedLocations !== undefined) {
+      const next = get();
+      persistLocalPlaces(next.homeAddress, next.savedLocations);
+    }
+    if (displayTheme !== undefined) {
+      persistDisplayTheme(displayTheme);
+    }
   },
 
-  setHomeAddress: (homeAddress) => set({ homeAddress }),
-  setSavedLocations: (savedLocations) => set({ savedLocations }),
+  setHomeAddress: (homeAddress) => {
+    const savedLocations = get().savedLocations;
+    persistLocalPlaces(homeAddress, savedLocations);
+    set({ homeAddress });
+    const state = get();
+    const credential = state.deviceApiKey || state.deviceToken;
+    if (state.deviceId && credential && state.paired) {
+      void patchDeviceConfig(state.deviceId, credential, {
+        homeAddress: homeAddress ?? "",
+      });
+    }
+  },
+  setSavedLocations: (savedLocations) => {
+    const homeAddress = get().homeAddress;
+    persistLocalPlaces(homeAddress, savedLocations);
+    set({ savedLocations });
+    const state = get();
+    const credential = state.deviceApiKey || state.deviceToken;
+    if (state.deviceId && credential && state.paired) {
+      void patchDeviceConfig(state.deviceId, credential, { savedLocations });
+    }
+  },
+  setDisplayTheme: (displayTheme) => {
+    persistDisplayTheme(displayTheme);
+    set({ displayTheme });
+    const state = get();
+    const credential = state.deviceApiKey || state.deviceToken;
+    if (state.deviceId && credential && state.paired) {
+      void patchDeviceConfig(state.deviceId, credential, {
+        theme: displayTheme,
+      });
+    }
+  },
 }));

@@ -4,6 +4,7 @@ import type {
   SignalBars,
 } from "@/store/types";
 import { cn } from "@/lib/utils";
+import { MgSignalBars } from "@/components/graphics";
 
 type ConnectionStatusProps = {
   connection: ConnectionData;
@@ -45,6 +46,7 @@ export function ConnectionStatus({
         title="Offline"
       >
         <WifiOff className="h-3.5 w-3.5" aria-hidden />
+        <MgSignalBars className="mg-graphic h-3 w-4 opacity-50" aria-hidden />
         <span className="sr-only">Offline</span>
       </div>
     );
@@ -58,6 +60,7 @@ export function ConnectionStatus({
       >
         <Wifi className="h-3.5 w-3.5" aria-hidden />
         <SignalBarsIcon bars={connection.bars} />
+        <MgSignalBars className="mg-graphic h-3 w-4 text-white/50" aria-hidden />
         <span className="sr-only">Wi‑Fi signal {connection.bars} of 4</span>
       </div>
     );

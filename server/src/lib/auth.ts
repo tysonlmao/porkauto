@@ -2,9 +2,40 @@ import { SignJWT, jwtVerify } from "jose";
 
 const encoder = new TextEncoder();
 
+const INSECURE_JWT_SECRET_PLACEHOLDER =
+  "dev-change-me-to-a-long-random-string";
+
+let warnedInsecureSecret = false;
+
+/** Resolve JWT signing secret; throws if unset (or insecure in production). */
+export function resolveJwtSecret(): string {
+  const secret = process.env.JWT_SECRET?.trim();
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+
+  if (!secret) {
+    throw new Error(
+      "JWT_SECRET is required. Set it in the environment (see .env.example).",
+    );
+  }
+
+  if (secret === INSECURE_JWT_SECRET_PLACEHOLDER && nodeEnv === "production") {
+    throw new Error(
+      "JWT_SECRET must not use the insecure .env.example placeholder in production.",
+    );
+  }
+
+  if (secret === INSECURE_JWT_SECRET_PLACEHOLDER && !warnedInsecureSecret) {
+    warnedInsecureSecret = true;
+    console.warn(
+      "[auth] JWT_SECRET is the insecure placeholder; set a unique value before any shared/deployed use.",
+    );
+  }
+
+  return secret;
+}
+
 function getSecret() {
-  const secret = process.env.JWT_SECRET ?? "dev-change-me-to-a-long-random-string";
-  return encoder.encode(secret);
+  return encoder.encode(resolveJwtSecret());
 }
 
 export type UserTokenPayload = {

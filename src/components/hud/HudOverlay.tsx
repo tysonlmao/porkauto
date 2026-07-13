@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { findNextManeuver } from "@/lib/navigationCamera";
+import { Settings } from "lucide-react";
+import {
+  findNextManeuver,
+  findThenManeuver,
+} from "@/lib/navigationCamera";
+import { resolveAppearance } from "@/lib/displayTheme";
 import { useVehicleStore } from "@/store/vehicle";
+import { HostSettings } from "@/components/setup/HostSettings";
 import { Clock } from "./Clock";
 import { IndevButton } from "./IndevButton";
 import { ManeuverBanner } from "./ManeuverBanner";
@@ -9,6 +15,7 @@ import { NavStatus } from "./NavStatus";
 import { PrndlIndicator } from "./PrndlIndicator";
 import { SpeedLimitBadge } from "./SpeedLimitBadge";
 import { Speedometer } from "./Speedometer";
+import { cn } from "@/lib/utils";
 
 export function HudOverlay() {
   const mode = useVehicleStore((s) => s.mode);
@@ -22,6 +29,18 @@ export function HudOverlay() {
   const nav = useVehicleStore((s) => s.nav);
   const route = useVehicleStore((s) => s.route);
   const position = useVehicleStore((s) => s.position);
+  const displayTheme = useVehicleStore((s) => s.displayTheme);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (displayTheme !== "daylight" && displayTheme !== "system") return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [displayTheme]);
+
+  const appearance = resolveAppearance(displayTheme, new Date(nowTick));
+  const light = appearance === "light";
 
   const parkClockRef = useRef<HTMLDivElement>(null);
   const [parkClockWidth, setParkClockWidth] = useState<number | null>(null);
@@ -52,12 +71,20 @@ export function HudOverlay() {
     navigating && route?.steps?.length
       ? findNextManeuver(position, route.steps)
       : null;
+  const thenManeuver =
+    navigating && route?.steps?.length
+      ? findThenManeuver(position, route.steps)
+      : null;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 select-none">
-      {!reversing ? (
+      {!reversing && !navigating ? (
         <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_42%,rgba(0,0,0,0.55)_100%)]"
+          className={
+            light
+              ? "pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_50%,rgba(236,239,243,0.55)_100%)]"
+              : "pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_50%,rgba(18,20,26,0.5)_100%)]"
+          }
           aria-hidden
         />
       ) : null}
@@ -65,7 +92,7 @@ export function HudOverlay() {
       {spotifyNeedsGesture && !reversing ? (
         <button
           type="button"
-          className="pointer-events-auto absolute inset-x-0 bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] z-20 mx-auto max-w-md rounded-sm border border-white/15 bg-black/80 px-4 py-3 text-center text-[13px] text-zinc-200 backdrop-blur-sm"
+          className="pointer-events-auto absolute inset-x-0 bottom-[calc(1.5rem+env(safe-area-inset-bottom,0px))] z-20 mx-auto max-w-md rounded-2xl border border-white/15 bg-black/80 px-4 py-3 text-center text-[13px] text-zinc-200 backdrop-blur-sm"
         >
           Tap to enable Spotify audio on this display
         </button>
@@ -87,6 +114,20 @@ export function HudOverlay() {
               ) : null}
             </>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className={cn(
+              "pointer-events-auto mt-1 flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] backdrop-blur-sm",
+              light
+                ? "border-zinc-400/35 bg-white/70 text-zinc-600 hover:text-zinc-900"
+                : "border-white/10 bg-black/50 text-zinc-400 hover:text-zinc-200",
+            )}
+            aria-label="Open settings"
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Settings
+          </button>
         </div>
       </div>
 
@@ -118,7 +159,6 @@ export function HudOverlay() {
         </div>
       ) : null}
 
-      {/* Left stack: time (drive), music, then indev status — aligned with top HUD */}
       {reversing ? (
         <div className="absolute safe-top safe-left">
           <IndevButton />
@@ -151,6 +191,8 @@ export function HudOverlay() {
             distanceM={nextManeuver.distanceM}
             type={nextManeuver.type}
             modifier={nextManeuver.modifier}
+            thenManeuver={thenManeuver}
+            appearance={appearance}
           />
         </div>
       ) : null}
@@ -163,9 +205,14 @@ export function HudOverlay() {
             position={position}
             etaTime={nav?.etaTime}
             remainingMinutes={nav?.remainingMinutes}
+            remainingDistanceM={nav?.remainingDistanceM}
+            offRoute={nav?.offRoute}
+            appearance={appearance}
           />
         </div>
       ) : null}
+
+      <HostSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

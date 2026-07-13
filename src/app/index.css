@@ -8,6 +8,7 @@
 
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -186,6 +187,45 @@
   .music-upnext-swap {
     animation: music-upnext-swap 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+
+  .mg-spin {
+    animation: mg-spin 1.35s linear infinite;
+  }
+
+  .mg-pulse-nodes {
+    animation: mg-pulse-nodes 2.1s ease-in-out infinite;
+  }
+
+  .mg-draw {
+    stroke-dasharray: 120;
+    stroke-dashoffset: 120;
+    animation: mg-draw 720ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .mg-flash-in {
+    animation: mg-flash-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .mg-stagger-fade {
+    animation: mg-stagger-fade 520ms ease-out both;
+  }
+
+  /* Geometry tints via currentColor (never default black); labels stay white */
+  .mg-graphic {
+    fill: currentColor;
+  }
+
+  .mg-scene text,
+  .mg-scene tspan {
+    fill: #ffffff;
+  }
+
+  .mg-dot-shuttle {
+    fill: #ffffff;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: mg-dot-shuttle 2.6s ease-in-out infinite;
+  }
 }
 
 @keyframes hud-fade-in {
@@ -241,5 +281,62 @@
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes mg-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mg-pulse-nodes {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes mg-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes mg-flash-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mg-stagger-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mg-dot-shuttle {
+  0%,
+  100% {
+    transform: translateX(-18px);
+  }
+  50% {
+    transform: translateX(18px);
   }
 }

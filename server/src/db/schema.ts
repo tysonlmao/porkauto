@@ -25,6 +25,7 @@ export type SavedLocation = {
 };
 
 export type DeviceConfig = {
+  /** dark | light | system | daylight */
   theme?: string;
   units?: "metric" | "imperial";
   homeAddress?: string;

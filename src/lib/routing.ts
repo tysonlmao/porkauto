@@ -1,4 +1,5 @@
 import type { LatLngLiteral } from "@/components/map/mapStyles";
+import { deviceAuthHeaders } from "./deviceAuthHeaders";
 
 export type GeocodeResult = {
   name: string;
@@ -76,7 +77,7 @@ export async function geocodePlaces(
   }
 
   const url = `${geoApiBase()}/geo/search?${params.toString()}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: deviceAuthHeaders() });
   if (!res.ok) {
     throw new Error(`Geocode failed (${res.status})`);
   }
@@ -102,7 +103,7 @@ export async function fetchDrivingRoute(
   });
   const url = `${geoApiBase()}/geo/route?${params.toString()}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: deviceAuthHeaders() });
   if (!res.ok) {
     throw new Error(`Routing failed (${res.status})`);
   }

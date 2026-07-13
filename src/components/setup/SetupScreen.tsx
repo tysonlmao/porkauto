@@ -5,11 +5,19 @@ import {
   confirmDevicePairing,
   encodePairingQr,
   fetchDeviceConfig,
+  isFatalDeviceError,
   registerDevice,
   unpairDevice,
 } from "@/lib/api";
 import { useVehicleStore } from "@/store/vehicle";
 import { devToolsEnabled } from "@/lib/devTools";
+import {
+  MgLoader,
+  MgScene,
+  MgDeviceLink,
+  MgInstallComplete,
+  type PairProgressStep,
+} from "@/components/graphics";
 
 type StoredDevice = {
   deviceId: string;
@@ -23,7 +31,7 @@ type StoredDevice = {
 
 type SetupPhase = "registering" | "waiting" | "linked" | "error";
 
-const POLL_MS = 1500;
+const POLL_MS = 2500;
 
 export function SetupScreen() {
   const completeSetup = useVehicleStore((s) => s.completeSetup);
@@ -36,6 +44,7 @@ export function SetupScreen() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [pairStep, setPairStep] = useState<PairProgressStep>(-1);
   const linkedAnnounced = useRef(false);
 
   useEffect(() => {
@@ -107,9 +116,12 @@ export function SetupScreen() {
     if (phase !== "waiting" || !device) return;
 
     let cancelled = false;
+    let inflight = false;
     const credential = device.apiKey || device.token;
 
     async function poll() {
+      if (cancelled || inflight) return;
+      inflight = true;
       try {
         const status = await fetchDeviceConfig(device!.deviceId, credential);
         if (cancelled) return;
@@ -133,8 +145,19 @@ export function SetupScreen() {
           );
           setPhase("linked");
         }
-      } catch {
+      } catch (err) {
+        if (cancelled) return;
+        if (isFatalDeviceError(err)) {
+          cancelled = true;
+          setError(
+            "Device credentials rejected by the API. Reload to re-register.",
+          );
+          setPhase("error");
+          return;
+        }
         // Keep waiting — transient network blips during tunnel use.
+      } finally {
+        inflight = false;
       }
     }
 
@@ -157,6 +180,15 @@ export function SetupScreen() {
     const credential = device.apiKey || device.token;
     setConfirming(true);
     setError(null);
+    setPairStep(0);
+
+    const startedAt = Date.now();
+    const stepTimers = [
+      window.setTimeout(() => setPairStep(1), 700),
+      window.setTimeout(() => setPairStep(2), 1400),
+      window.setTimeout(() => setPairStep(3), 2100),
+    ];
+
     try {
       const status = await confirmDevicePairing(device.deviceId, credential);
       const name = status.name || device.name || displayName;
@@ -167,6 +199,16 @@ export function SetupScreen() {
         null;
       setDisplayName(name);
       if (pairedTo) setCompanionName(pairedTo);
+
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(0, 2600 - elapsed);
+      if (remaining > 0) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, remaining);
+        });
+      }
+      setPairStep(3);
+
       completeSetup({
         ...device,
         name,
@@ -174,6 +216,8 @@ export function SetupScreen() {
         paired: true,
       });
     } catch (err) {
+      for (const id of stepTimers) window.clearTimeout(id);
+      setPairStep(-1);
       setError(
         err instanceof Error ? err.message : "Could not confirm pairing",
       );
@@ -231,49 +275,60 @@ export function SetupScreen() {
             : "Scan the QR with the companion app, or enter the code below."}
         </p>
 
-        <div className="mt-12 flex flex-col items-center gap-7">
-          <div
-            className={`relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-zinc-950 ring-1 transition ${
-              isLinked ? "ring-emerald-500/50" : "ring-white/10"
-            }`}
-          >
-            {isLinked ? (
-              <div className="flex flex-col items-center gap-2 px-3">
-                <span className="text-3xl text-emerald-400" aria-hidden>
-                  ✓
-                </span>
-                <span className="text-[11px] font-medium uppercase tracking-[0.2em] text-emerald-400/90">
-                  linked
-                </span>
-              </div>
-            ) : qrDataUrl ? (
-              <img
-                src={qrDataUrl}
-                alt="Pairing QR code"
-                className="h-full w-full object-contain p-2"
-              />
-            ) : (
-              <>
-                <div
-                  className="absolute inset-3 rounded-md opacity-80"
-                  style={{
-                    backgroundImage:
-                      "linear-gradient(#27272a 1px, transparent 1px), linear-gradient(90deg, #27272a 1px, transparent 1px)",
-                    backgroundSize: "10px 10px",
-                  }}
-                  aria-hidden
+        <div className="mt-10 flex justify-center">
+          {isLinked ? (
+            <MgInstallComplete
+              animate
+              tone={confirming || pairStep >= 0 ? "emerald" : "neutral"}
+              step={pairStep}
+              width={300}
+              className="mg-graphic mg-scene h-auto text-white/90 mg-stagger-fade"
+            />
+          ) : (
+            <MgScene
+              scene={MgDeviceLink}
+              width={240}
+              className={
+                isRegistering
+                  ? "text-white/55 hud-pulse"
+                  : "text-white/70"
+              }
+            />
+          )}
+        </div>
+
+        <div className="mt-8 flex flex-col items-center gap-7">
+          {isLinked ? null : (
+            <div className="relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-xl bg-zinc-950 ring-1 ring-white/10">
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="Pairing QR code"
+                  className="h-full w-full object-contain p-2"
                 />
-                <span className="relative text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">
-                  {isRegistering ? "…" : "QR"}
-                </span>
-              </>
-            )}
-          </div>
+              ) : (
+                <>
+                  <div
+                    className="absolute inset-3 rounded-md opacity-80"
+                    style={{
+                      backgroundImage:
+                        "linear-gradient(#27272a 1px, transparent 1px), linear-gradient(90deg, #27272a 1px, transparent 1px)",
+                      backgroundSize: "10px 10px",
+                    }}
+                    aria-hidden
+                  />
+                  <MgLoader
+                    size={32}
+                    variant="duo"
+                    className="relative text-zinc-500"
+                  />
+                </>
+              )}
+            </div>
+          )}
 
           {isRegistering ? (
-            <p className="hud-pulse font-mono text-3xl tracking-[0.4em] text-zinc-600">
-              ······
-            </p>
+            <MgLoader size={36} variant="spin" label="registering" />
           ) : pairingCode ? (
             <p
               className={`font-mono text-4xl font-semibold tracking-[0.4em] ${
@@ -291,12 +346,6 @@ export function SetupScreen() {
           {error ? (
             <p className="max-w-sm text-xs leading-relaxed text-amber-500/90">
               {error}
-            </p>
-          ) : isLinked ? (
-            <p className="max-w-sm text-sm leading-relaxed text-zinc-400">
-              Paired to{" "}
-              <span className="font-medium text-emerald-300">{pairedLabel}</span>
-              . Confirm on this display to finish.
             </p>
           ) : isWaiting ? (
             <p className="hud-pulse text-xs tracking-wide text-zinc-600">

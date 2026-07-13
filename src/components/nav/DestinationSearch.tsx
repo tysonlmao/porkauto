@@ -3,7 +3,6 @@ import {
   Search,
   X,
   Navigation,
-  Loader2,
   Square,
   Play,
   Home,
@@ -15,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { MediaControls } from "@/components/hud/MediaControls";
 import { OnscreenTextField } from "@/components/keyboard/OnscreenTextField";
 import { useOnscreenKeyboard } from "@/components/keyboard/KeyboardProvider";
+import { MgConnectorX, MgLoader } from "@/components/graphics";
 
 type DestinationSearchProps = {
   className?: string;
@@ -167,7 +167,7 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
               className="flex-1"
             />
             {busy ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-zinc-400" />
+              <MgLoader size={16} variant="spin" className="text-zinc-400" />
             ) : (
               <button
                 type="button"
@@ -223,9 +223,12 @@ export function DestinationSearch({ className }: DestinationSearchProps) {
                 </li>
               ))}
               {!homeLabel && savedLocations.length === 0 ? (
-                <li className="px-3 py-3 text-[12px] text-zinc-600">
-                  Tap search to find a place, or save locations in the companion
-                  app.
+                <li className="flex items-start gap-2.5 px-3 py-3 text-[12px] text-zinc-600">
+                  <MgConnectorX className="mg-graphic mt-0.5 h-5 w-12 shrink-0 text-zinc-400" />
+                  <span>
+                    Tap search to find a place, or open Settings to add home /
+                    saved places (no phone required).
+                  </span>
                 </li>
               ) : null}
             </ul>

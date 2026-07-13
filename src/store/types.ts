@@ -32,7 +32,14 @@ export type NavStatus = {
   etaTime: string;
   remainingMinutes: number;
   destination: string;
+  /** Live remaining path length along the active route (meters). */
+  remainingDistanceM?: number;
+  /** True when vehicle is farther from the route than the off-route threshold. */
+  offRoute?: boolean;
 };
+
+/** Host / companion display appearance (DeviceConfig.theme). */
+export type DisplayThemeMode = "dark" | "light" | "system" | "daylight";
 
 export type Destination = {
   name: string;
@@ -88,10 +95,12 @@ export type VehicleState = {
   /** Phone/tablet that claimed this display — shown as “Paired to …”. */
   companionName: string | null;
   paired: boolean;
-  /** From companion device config — used as destination shortcut. */
+  /** From companion / host settings — destination shortcut. */
   homeAddress: string | null;
-  /** Saved places from companion config. */
+  /** Saved places (local and/or companion config). */
   savedLocations: SavedLocation[];
+  /** Appearance preference (synced via DeviceConfig.theme when paired). */
+  displayTheme: DisplayThemeMode;
 };
 
 export const GEARS: Gear[] = ["P", "R", "N", "D"];

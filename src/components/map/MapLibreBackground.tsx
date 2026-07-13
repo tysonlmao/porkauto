@@ -13,6 +13,7 @@ import {
   applyPorkautoHudTheme,
   applyRouteLineStyle,
 } from "@/lib/mapTheme";
+import type { ResolvedAppearance } from "@/lib/displayTheme";
 import { cn } from "@/lib/utils";
 
 type MapLibreBackgroundProps = {
@@ -26,6 +27,7 @@ type MapLibreBackgroundProps = {
   navigating: boolean;
   /** When true, camera follows the vehicle cursor. */
   following: boolean;
+  appearance?: ResolvedAppearance;
   /** Fired when the user pans/zooms the map (pause follow). */
   onUserInteract?: () => void;
   className?: string;
@@ -35,20 +37,26 @@ function toLngLat(p: LatLng): [number, number] {
   return [p.lng, p.lat];
 }
 
-function createArrowElement(): HTMLDivElement {
+function createArrowElement(appearance: ResolvedAppearance = "dark"): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "porkauto-position-arrow";
-  el.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d="M10 2 L18 17 L10 13.5 L2 17 Z" fill="#FFFFFF" stroke="rgba(0,0,0,0.35)" stroke-width="1" stroke-linejoin="round"/>
-    </svg>
-  `;
+  el.dataset.appearance = appearance;
+  paintArrowElement(el, appearance);
   el.style.width = "20px";
   el.style.height = "20px";
   el.style.transformOrigin = "center center";
-  el.style.filter = "drop-shadow(0 1px 3px rgba(0,0,0,0.55))";
   el.style.pointerEvents = "none";
   return el;
+}
+
+function paintArrowElement(el: HTMLDivElement, appearance: ResolvedAppearance) {
+  el.dataset.appearance = appearance;
+  el.style.filter = "drop-shadow(0 1px 3px rgba(0,0,0,0.45))";
+  el.innerHTML = `
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M10 2 L18 17 L10 13.5 L2 17 Z" fill="#FFFFFF" stroke="rgba(0,0,0,0.35)" stroke-width="1.1" stroke-linejoin="round"/>
+    </svg>
+  `;
 }
 
 function createDestinationElement(): HTMLDivElement {
@@ -133,6 +141,7 @@ export function MapLibreBackground({
   pinTight,
   navigating,
   following,
+  appearance = "dark",
   onUserInteract,
   className,
 }: MapLibreBackgroundProps) {
@@ -140,6 +149,8 @@ export function MapLibreBackground({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const arrowMarkerRef = useRef<maplibregl.Marker | null>(null);
   const destMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
   const lastCameraPos = useRef<LatLng | null>(null);
   const lastBearing = useRef(0);
   const snappedToLive = useRef(false);
@@ -182,7 +193,7 @@ export function MapLibreBackground({
     map.dragRotate.disable();
     map.getCanvas().style.touchAction = "none";
 
-    const arrowEl = createArrowElement();
+    const arrowEl = createArrowElement(appearanceRef.current);
 
     const arrowMarker = new maplibregl.Marker({
       element: arrowEl,
@@ -197,7 +208,7 @@ export function MapLibreBackground({
     lastCameraPos.current = { lat: position.lat, lng: position.lng };
 
     const onStyleReady = () => {
-      applyPorkautoHudTheme(map);
+      applyPorkautoHudTheme(map, appearanceRef.current);
       addRouteLayers(map);
       applyRouteLineStyle(map, false);
     };
@@ -351,6 +362,20 @@ export function MapLibreBackground({
     }
   }, [destination]);
 
+  // Re-apply HUD colors when appearance changes, and again when entering drive
+  // (Park used to fake theme via a CSS wash; drive must own real basemap paints).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      applyPorkautoHudTheme(map, appearance);
+      const arrow = arrowMarkerRef.current?.getElement();
+      if (arrow instanceof HTMLDivElement) paintArrowElement(arrow, appearance);
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("load", apply);
+  }, [appearance, mode]);
+
   // Route geometry + color (preview green vs navigating glow red)
   useEffect(() => {
     const map = mapRef.current;
@@ -358,7 +383,7 @@ export function MapLibreBackground({
 
     const apply = () => {
       if (!map.getSource("route")) {
-        applyPorkautoHudTheme(map);
+        applyPorkautoHudTheme(map, appearance);
         addRouteLayers(map);
       }
 
@@ -426,12 +451,15 @@ export function MapLibreBackground({
     } else {
       map.once("load", apply);
     }
-  }, [route, mode, position, navigating, destination]);
+  }, [route, mode, position, navigating, destination, appearance]);
 
   return (
     <div
       ref={containerRef}
-      className={cn("h-full w-full touch-none bg-[#07090d]", className)}
+      className={cn("h-full w-full touch-none", className)}
+      style={{
+        backgroundColor: appearance === "light" ? "#e9ecef" : "#0e1014",
+      }}
     />
   );
 }

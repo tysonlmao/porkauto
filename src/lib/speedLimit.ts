@@ -1,3 +1,5 @@
+import { deviceAuthHeaders } from "./deviceAuthHeaders";
+
 /** Same-origin API (Vite proxies /geo → :3001). */
 function geoApiBase(): string {
   const env = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
@@ -22,7 +24,7 @@ export async function fetchSpeedLimit(
     lng: String(lng),
   });
   const url = `${geoApiBase()}/geo/speed-limit?${params.toString()}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: deviceAuthHeaders() });
   if (!res.ok) {
     throw new Error(`Speed limit lookup failed (${res.status})`);
   }

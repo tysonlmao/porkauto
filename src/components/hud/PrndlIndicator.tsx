@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { GEARS, type Gear } from "@/store/types";
 import { useVehicleStore } from "@/store/vehicle";
+import { resolveAppearance } from "@/lib/displayTheme";
 import { devToolsEnabled } from "@/lib/devTools";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ const SWIPE_THRESHOLD_PX = 36;
 
 export function PrndlIndicator({ gear, className }: PrndlIndicatorProps) {
   const setGear = useVehicleStore((s) => s.setGear);
+  const displayTheme = useVehicleStore((s) => s.displayTheme);
+  const light = resolveAppearance(displayTheme) === "light";
   const interactive = devToolsEnabled();
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -45,8 +48,6 @@ export function PrndlIndicator({ gear, className }: PrndlIndicatorProps) {
     const absY = Math.abs(dy);
     if (absX < SWIPE_THRESHOLD_PX && absY < SWIPE_THRESHOLD_PX) return;
 
-    // Horizontal PRND row: right → D, left → P.
-    // Vertical shifter feel: down → D, up → P.
     if (absX >= absY) {
       shiftGear(dx > 0 ? 1 : -1);
     } else {
@@ -72,8 +73,8 @@ export function PrndlIndicator({ gear, className }: PrndlIndicatorProps) {
           className={cn(
             "transition-colors duration-300",
             g === gear
-              ? "font-semibold text-white"
-              : "font-normal text-zinc-600",
+              ? cn("font-semibold", light ? "text-zinc-900" : "text-white")
+              : cn("font-normal", light ? "text-zinc-400" : "text-zinc-600"),
           )}
         >
           {g}

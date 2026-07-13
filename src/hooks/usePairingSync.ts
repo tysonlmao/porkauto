@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { parseDisplayThemeMode } from "@/lib/displayTheme";
 import { fetchDeviceConfig, isFatalDeviceError, unpairDevice } from "@/lib/api";
 import { useVehicleStore } from "@/store/vehicle";
 import type { SavedLocation } from "@/store/types";
@@ -78,6 +79,9 @@ export function usePairingSync(enabled: boolean) {
           const savedLocations = parseSavedLocations(
             (status.config ?? {}) as Record<string, unknown>,
           );
+          const theme = parseDisplayThemeMode(
+            (status.config as Record<string, unknown> | undefined)?.theme,
+          );
           const nextName = status.name || undefined;
           const nextCompanion = status.companionName || undefined;
 
@@ -87,6 +91,7 @@ export function usePairingSync(enabled: boolean) {
             state.deviceName === (nextName ?? state.deviceName) &&
             state.companionName === (nextCompanion ?? state.companionName) &&
             state.homeAddress === (home ?? state.homeAddress) &&
+            state.displayTheme === theme &&
             sameLocations(state.savedLocations, savedLocations)
           ) {
             return;
@@ -98,6 +103,7 @@ export function usePairingSync(enabled: boolean) {
             companionName: nextCompanion,
             homeAddress: home,
             savedLocations,
+            displayTheme: theme,
           });
           return;
         }

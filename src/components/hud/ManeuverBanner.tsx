@@ -11,15 +11,29 @@ import {
   RotateCw,
   CircleDot,
 } from "lucide-react";
-import { formatManeuverDistance } from "@/lib/navigationCamera";
+import {
+  formatManeuverDistance,
+  streetLabelFromInstruction,
+} from "@/lib/navigationCamera";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import type { ResolvedAppearance } from "@/lib/displayTheme";
+
+type ManeuverInfo = {
+  instruction: string;
+  distanceM: number;
+  type: string;
+  modifier?: string;
+};
 
 type ManeuverBannerProps = {
   instruction: string;
   distanceM: number;
   type: string;
   modifier?: string;
+  /** Upcoming turn after the current one (Tesla “then” row). */
+  thenManeuver?: ManeuverInfo | null;
+  appearance?: ResolvedAppearance;
   className?: string;
 };
 
@@ -52,32 +66,102 @@ function maneuverIcon(type: string, modifier?: string): LucideIcon {
   return CircleDot;
 }
 
+/**
+ * Tesla-inspired guidance card: large distance + turn icon, street name,
+ * optional then-turn row. Stays centered by the parent.
+ */
 export function ManeuverBanner({
   instruction,
   distanceM,
   type,
   modifier,
+  thenManeuver,
+  appearance = "dark",
   className,
 }: ManeuverBannerProps) {
   const Icon = maneuverIcon(type, modifier);
   const distanceLabel = formatManeuverDistance(distanceM);
+  const street = streetLabelFromInstruction(instruction);
+  const light = appearance === "light";
+  const ThenIcon = thenManeuver
+    ? maneuverIcon(thenManeuver.type, thenManeuver.modifier)
+    : null;
+  const thenStreet = thenManeuver
+    ? streetLabelFromInstruction(thenManeuver.instruction)
+    : null;
 
   return (
     <div
       className={cn(
-        "flex max-w-[min(22rem,78vw)] items-center gap-3 rounded-sm border border-white/12 bg-black/75 px-3.5 py-3 backdrop-blur-md",
+        "w-[min(22rem,86vw)] overflow-hidden rounded-2xl shadow-[0_8px_28px_rgba(0,0,0,0.18)]",
+        light
+          ? "border border-black/[0.06] bg-white/92 text-zinc-900 backdrop-blur-xl"
+          : "border border-white/10 bg-[#1a1c22]/92 text-zinc-50 backdrop-blur-xl",
         className,
       )}
     >
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-sm bg-emerald-500/15 text-emerald-300">
-        <Icon className="h-7 w-7" strokeWidth={2.25} aria-hidden />
+      <div className="flex items-start gap-3.5 px-4 pb-3.5 pt-4">
+        <div
+          className={cn(
+            "flex h-14 w-14 shrink-0 items-center justify-center rounded-xl",
+            light ? "bg-zinc-900 text-white" : "bg-white text-zinc-900",
+          )}
+        >
+          <Icon className="h-8 w-8" strokeWidth={2.5} aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1 pt-0.5 leading-tight">
+          <p
+            className={cn(
+              "text-[28px] font-semibold tracking-tight tabular-nums",
+              light ? "text-zinc-900" : "text-white",
+            )}
+          >
+            {type === "arrive" ? "Arriving" : distanceLabel}
+          </p>
+          <p
+            className={cn(
+              "mt-1 truncate text-[16px] font-medium",
+              light ? "text-zinc-700" : "text-zinc-200",
+            )}
+          >
+            {street}
+          </p>
+        </div>
       </div>
-      <div className="min-w-0 leading-[1.3]">
-        <p className="text-[18px] font-semibold tabular-nums text-white">
-          {type === "arrive" ? "Arriving" : `In ${distanceLabel}`}
-        </p>
-        <p className="mt-0.5 truncate text-[13px] text-zinc-300">{instruction}</p>
-      </div>
+
+      {thenManeuver && ThenIcon && thenStreet ? (
+        <div
+          className={cn(
+            "flex items-center gap-2.5 border-t px-4 py-2.5",
+            light ? "border-zinc-200/90" : "border-white/10",
+          )}
+        >
+          <ThenIcon
+            className={cn(
+              "h-5 w-5 shrink-0",
+              light ? "text-zinc-800" : "text-zinc-100",
+            )}
+            strokeWidth={2.4}
+            aria-hidden
+          />
+          <p
+            className={cn(
+              "min-w-0 flex-1 truncate text-[13px] font-medium",
+              light ? "text-zinc-700" : "text-zinc-200",
+            )}
+          >
+            {thenStreet}
+          </p>
+          <p
+            className={cn(
+              "shrink-0 text-[13px] tabular-nums",
+              light ? "text-zinc-500" : "text-zinc-400",
+            )}
+          >
+            {formatManeuverDistance(thenManeuver.distanceM)}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

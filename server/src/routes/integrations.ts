@@ -14,6 +14,7 @@ import {
   getSpotifyRedirectUri,
   playContextUri,
   refreshAccessToken,
+  resolvePorkautoSpotifyDeviceId,
   spotifyConfigured,
   transferPlayback,
   controlPlayback,
@@ -400,9 +401,9 @@ deviceIntegrationRoutes.post(
   async (c) => {
     const id = c.req.param("id");
     const auth = c.get("auth");
-    if (auth.typ !== "device") {
+    if (auth.typ !== "device" && auth.typ !== "owner") {
       throw new HTTPException(403, {
-        message: "Device authentication required to transfer Spotify playback",
+        message: "Device or owner authentication required to transfer Spotify playback",
       });
     }
     await requireDeviceAccess(auth, id);
@@ -410,15 +411,25 @@ deviceIntegrationRoutes.post(
     const body = await c.req.json<{
       spotifyDeviceId?: string;
       play?: boolean;
+      /** When true (or when spotifyDeviceId omitted), resolve Connect device "Porkauto". */
+      toDisplay?: boolean;
     }>();
-    const spotifyDeviceId = body.spotifyDeviceId?.trim();
-    if (!spotifyDeviceId) {
-      throw new HTTPException(400, { message: "spotifyDeviceId is required" });
+    const { accessToken } = await getValidSpotifyAccessToken(id);
+
+    let spotifyDeviceId = body.spotifyDeviceId?.trim() || "";
+    if (!spotifyDeviceId || body.toDisplay) {
+      const resolved = await resolvePorkautoSpotifyDeviceId(accessToken);
+      if (!resolved) {
+        throw new HTTPException(404, {
+          message:
+            "Porkauto display is not available as a Spotify Connect device — open the display HUD first",
+        });
+      }
+      spotifyDeviceId = resolved;
     }
 
-    const { accessToken } = await getValidSpotifyAccessToken(id);
     await transferPlayback(accessToken, spotifyDeviceId, body.play !== false);
-    return c.json({ ok: true });
+    return c.json({ ok: true, spotifyDeviceId });
   },
 );
 

@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from "react";
-import { LocateFixed, Loader2 } from "lucide-react";
+import { LocateFixed } from "lucide-react";
 import {
   deviceLikelyHasGps,
   isElectrobunRuntime,
@@ -8,6 +8,7 @@ import { motionPermissionRequiresUserGesture } from "@/lib/deviceMotion";
 import { promptDeviceAccessFromUserGesture } from "@/lib/promptDeviceAccess";
 import { useVehicleStore } from "@/store/vehicle";
 import { cn } from "@/lib/utils";
+import { MgLoader } from "@/components/graphics";
 
 /**
  * Gate for Safari GPS + motion. Motion is required for map heading + IMU speed.
@@ -111,7 +112,7 @@ export function PermissionsGate() {
         >
           {busy ? (
             <span className="inline-flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <MgLoader size={16} variant="spin" className="text-black" />
               Waiting for Safari…
             </span>
           ) : insecure ? (

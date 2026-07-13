@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { resolveJwtSecret } from "./lib/auth";
 import { requestLog } from "./middleware/requestLog";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/devices";
@@ -10,13 +11,16 @@ import {
   spotifyCallbackRoutes,
 } from "./routes/integrations";
 
-const app = new Hono();
+// Fail fast if JWT_SECRET is missing / insecure in production.
+resolveJwtSecret();
+
+export const app = new Hono();
 
 app.use(
   "*",
   cors({
     origin: "*",
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Device-Id"],
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   }),
 );

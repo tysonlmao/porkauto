@@ -265,7 +265,41 @@ deviceRoutes.delete("/:id/claim", requireAuth, async (c) => {
     throw new HTTPException(403, { message: "Not authorized for this device" });
   }
 
-  // Purge device (+ cascaded integrations) on unpair.
+  const status = pairingStatus(device);
+
+  if (status === "unpaired") {
+    throw new HTTPException(404, { message: "Device not found" });
+  }
+
+  // Pending claim: clear owner fields; keep the host device + pairing code.
+  if (status === "pending") {
+    await db
+      .update(devices)
+      .set({
+        ownerTokenHash: null,
+        companionName: null,
+        claimedAt: null,
+        confirmedAt: null,
+        pairedUserId: null,
+        lastSeenAt: new Date(),
+      })
+      .where(eq(devices.id, device.id));
+
+    return c.json({
+      deleted: false,
+      cleared: true,
+      deviceId: id,
+      paired: false,
+      confirmed: false,
+      pairingStatus: "unpaired" as const,
+    });
+  }
+
+  // Confirmed: only device/owner/user may purge (canAccessDevice already enforced).
+  if (auth.typ !== "device" && auth.typ !== "owner" && auth.typ !== "user") {
+    throw new HTTPException(403, { message: "Not authorized for this device" });
+  }
+
   await db.delete(devices).where(eq(devices.id, device.id));
 
   return c.json({
