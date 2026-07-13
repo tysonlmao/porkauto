@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { requestLog } from "./middleware/requestLog";
 import { authRoutes } from "./routes/auth";
 import { deviceRoutes } from "./routes/devices";
 import { geoRoutes } from "./routes/geo";
@@ -19,6 +20,8 @@ app.use(
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   }),
 );
+
+app.use("*", requestLog());
 
 app.get("/health", (c) =>
   c.json({ ok: true, service: "porkauto-api", ts: Date.now() }),

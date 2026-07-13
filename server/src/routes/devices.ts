@@ -265,38 +265,12 @@ deviceRoutes.delete("/:id/claim", requireAuth, async (c) => {
     throw new HTTPException(403, { message: "Not authorized for this device" });
   }
 
-  let pairingCode = generatePairingCode();
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const clash = await db.query.devices.findFirst({
-      where: eq(devices.pairingCode, pairingCode),
-    });
-    if (!clash || clash.id === device.id) break;
-    pairingCode = generatePairingCode();
-  }
-
-  const [updated] = await db
-    .update(devices)
-    .set({
-      ownerTokenHash: null,
-      companionName: null,
-      claimedAt: null,
-      confirmedAt: null,
-      pairedUserId: null,
-      pairingCode,
-      lastSeenAt: new Date(),
-    })
-    .where(eq(devices.id, device.id))
-    .returning({
-      id: devices.id,
-      name: devices.name,
-      pairingCode: devices.pairingCode,
-      companionName: devices.companionName,
-      claimedAt: devices.claimedAt,
-      confirmedAt: devices.confirmedAt,
-    });
+  // Purge device (+ cascaded integrations) on unpair.
+  await db.delete(devices).where(eq(devices.id, device.id));
 
   return c.json({
-    device: updated,
+    deleted: true,
+    deviceId: id,
     paired: false,
     confirmed: false,
     pairingStatus: "unpaired" as const,

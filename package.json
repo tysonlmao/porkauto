@@ -7,7 +7,7 @@
     "dev:all": "bun ./scripts/dev.ts",
     "dev:renderer": "vite --host",
     "dev:app": "RENDERER_URL=http://localhost:5173 electrobun dev",
-    "dev:tunnel": "bun ./scripts/dev-tunnel.ts",
+    "dev:tunnel": "bun ./scripts/dev-tui.ts",
     "dev:api": "bun run --hot server/src/index.ts",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
+    "@opentui/core": "^0.4.3",
     "@tailwindcss/vite": "^4.1.16",
     "@vis.gl/react-google-maps": "^1.5.3",
     "class-variance-authority": "^0.7.1",

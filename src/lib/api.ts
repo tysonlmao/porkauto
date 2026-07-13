@@ -9,6 +9,60 @@ export function apiBase(): string {
   return (import.meta.env.VITE_API_URL ?? "http://localhost:3001").replace(/\/$/, "");
 }
 
+/** Typed HTTP failure so pollers can stop on auth errors. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+function errorStatus(err: unknown): number | null {
+  if (!err || typeof err !== "object") return null;
+  const status = (err as { status?: unknown }).status;
+  return typeof status === "number" ? status : null;
+}
+
+/** Duck-typed — avoid `instanceof` (breaks across Vite HMR copies). */
+export function isAuthError(err: unknown): boolean {
+  const status = errorStatus(err);
+  return status === 401 || status === 403;
+}
+
+/** Stop polling: bad credentials or device purged. */
+export function isFatalDeviceError(err: unknown): boolean {
+  const status = errorStatus(err);
+  return status === 401 || status === 403 || status === 404;
+}
+
+/** Never re-hit the API with a credential that already got 401/403/404. */
+const deadCredentials = new Set<string>();
+
+function credentialKey(deviceId: string, credential: string): string {
+  return `${deviceId}:${credential}`;
+}
+
+export function rememberDeviceAuthFailure(
+  deviceId: string,
+  credential: string,
+): void {
+  deadCredentials.add(credentialKey(deviceId, credential));
+}
+
+export function assertCredentialAlive(deviceId: string, credential: string): void {
+  if (deadCredentials.has(credentialKey(deviceId, credential))) {
+    throw new ApiError("Device credentials rejected (cached)", 401);
+  }
+}
+
+async function throwApiError(res: Response, fallback: string): Promise<never> {
+  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+  throw new ApiError(body?.error ?? `${fallback} (${res.status})`, res.status);
+}
+
 /** Absolute origin the companion app should call (embedded in pairing QR). */
 export function publicApiOrigin(): string {
   if (typeof window !== "undefined" && window.location?.origin) {
@@ -80,7 +134,10 @@ export async function registerDevice(
 
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Device registration failed (${res.status})`);
+    throw new ApiError(
+      body?.error ?? `Device registration failed (${res.status})`,
+      res.status,
+    );
   }
 
   return (await res.json()) as RegisterDeviceResponse;
@@ -101,13 +158,17 @@ export async function fetchDeviceConfig(
   deviceId: string,
   token: string,
 ): Promise<DeviceStatus> {
+  assertCredentialAlive(deviceId, token);
+
   const res = await fetch(`${apiBase()}/devices/${deviceId}/config`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Failed to load config (${res.status})`);
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      rememberDeviceAuthFailure(deviceId, token);
+    }
+    await throwApiError(res, "Failed to load config");
   }
 
   const data = (await res.json()) as DeviceStatus & {
@@ -129,8 +190,7 @@ export async function confirmDevicePairing(
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Failed to confirm pairing (${res.status})`);
+    await throwApiError(res, "Failed to confirm pairing");
   }
 
   const data = (await res.json()) as {
@@ -160,8 +220,15 @@ export async function unpairDevice(
     headers: { Authorization: `Bearer ${token}` },
   });
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Failed to unpair (${res.status})`);
+  // 404 = already purged — treat as success.
+  if (res.status === 404) {
+    rememberDeviceAuthFailure(deviceId, token);
+    return;
   }
+
+  if (!res.ok) {
+    await throwApiError(res, "Failed to unpair");
+  }
+
+  rememberDeviceAuthFailure(deviceId, token);
 }
